@@ -1,0 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
+import process from 'node:process';
+import { createHash } from 'node:crypto';
+const api = JSON.parse(readFileSync(new URL('../packages/contracts/openapi.json', import.meta.url)));
+const manifest = JSON.parse(readFileSync(new URL('../packages/contracts/contract-manifest.json', import.meta.url)));
+const digest = createHash('sha256').update(readFileSync(new URL('../packages/contracts/openapi.json', import.meta.url))).digest('hex');
+if (manifest.version !== api.info.version || manifest.sha256 !== digest) throw new Error('Drift contractual: ejecuta npm run contracts:generate');
+if (api.info.version !== '1.0.0' || !api.paths['/v1/me'] || !api.components.schemas.MeResponse || !api.components.schemas.ApiErrorResponse) throw new Error('Contrato OpenAPI inválido');
+if (Number(api.info.version.split('.')[0]) !== 1) throw new Error('Cambio incompatible con 1.x');
+process.stdout.write(`Contrato ${api.info.version} válido y compatible con 1.x\n`);
