@@ -1,3 +1,4 @@
+/* global process, URL, console */
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 
@@ -6,6 +7,7 @@ const migrations = [
   ['projects', '../drizzle/0002_projects.sql'],
   ['resources', '../drizzle/0003_note_resources.sql'],
   ['folders', '../drizzle/0004_project_organization.sql'],
+  ['uploads', '../drizzle/0005_secure_uploads.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

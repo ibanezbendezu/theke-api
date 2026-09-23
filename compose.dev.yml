@@ -1,0 +1,28 @@
+services:
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: theke-local
+      MINIO_ROOT_PASSWORD: theke-local-secret
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:5173
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - theke-minio:/data
+  minio-init:
+    image: quay.io/minio/mc:latest
+    depends_on: [minio]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["until mc alias set local http://minio:9000 theke-local theke-local-secret; do sleep 1; done; mc mb --ignore-existing local/theke; exit 0"]
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - ./infra/clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - theke-clamav:/var/lib/clamav
+volumes:
+  theke-minio:
+  theke-clamav:

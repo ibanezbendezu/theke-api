@@ -1,0 +1,25 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { Database } from '../../infrastructure/database/database.js';
+import { resources, resourceVersions, uploads } from '../../infrastructure/database/schema.js';
+import { UploadQueue } from '../../infrastructure/queue/upload.queue.js';
+
+export interface UploadCreation { accountId: string; authorUserId: string; idempotencyKey: string; originalName: string; mediaType: string; size: number; uploadId: string; resourceId: string; quarantineKey: string }
+export interface UploadInspection { sha256: string; detectedMediaType: string; cleanKey: string }
+
+@Injectable()
+export class UploadRepository {
+  constructor(@Inject(Database) private readonly database: Database, @Inject(UploadQueue) private readonly queue: UploadQueue) {}
+  findByKey(accountId: string, key: string) { return this.database.db.query.uploads.findFirst({ where: and(eq(uploads.accountId, accountId), eq(uploads.idempotencyKey, key)) }); }
+  get(accountId: string, id: string) { return this.database.db.query.uploads.findFirst({ where: and(eq(uploads.accountId, accountId), eq(uploads.id, id)) }); }
+  getInternal(id: string) { return this.database.db.query.uploads.findFirst({ where: eq(uploads.id, id) }); }
+  list(accountId: string) { return this.database.db.select().from(uploads).where(eq(uploads.accountId, accountId)); }
+  async reservedBytes(accountId: string) { const [row] = await this.database.db.select({ total: sql<string>`coalesce(sum(${uploads.declaredSize}), 0)` }).from(uploads).where(and(eq(uploads.accountId, accountId), inArray(uploads.status, ['initiated', 'finalizing', 'uploaded', 'scanning', 'ready']))); return Number(row?.total ?? 0); }
+  create(value: UploadCreation) { return this.database.db.transaction(async tx => { await tx.insert(resources).values({ id: value.resourceId, accountId: value.accountId, authorUserId: value.authorUserId, type: 'file', title: value.originalName, creationMethod: 'manual' }); const [upload] = await tx.insert(uploads).values({ id: value.uploadId, accountId: value.accountId, resourceId: value.resourceId, idempotencyKey: value.idempotencyKey, status: 'initiated', originalName: value.originalName, declaredMediaType: value.mediaType, declaredSize: value.size, quarantineKey: value.quarantineKey }).returning(); return upload!; }); }
+  async claimFinalize(accountId: string, id: string) { const [claimed] = await this.database.db.update(uploads).set({ status: 'finalizing', updatedAt: new Date() }).where(and(eq(uploads.accountId, accountId), eq(uploads.id, id), eq(uploads.status, 'initiated'))).returning(); return claimed ?? this.get(accountId, id); }
+  async finalize(accountId: string, id: string, value: { snapshotKey: string; etag: string }, requestId: string) { return this.database.db.transaction(async tx => { const [upload] = await tx.update(uploads).set({ status: 'uploaded', snapshotKey: value.snapshotKey, etag: value.etag, updatedAt: new Date() }).where(and(eq(uploads.accountId, accountId), eq(uploads.id, id), eq(uploads.status, 'finalizing'))).returning(); if (upload) await this.queue.enqueue(id, requestId, tx); return upload; }); }
+  async setFailure(id: string, status: 'rejected' | 'failed', reason: string) { await this.database.db.update(uploads).set({ status, failureReason: reason, updatedAt: new Date() }).where(eq(uploads.id, id)); }
+  async cancel(accountId: string, id: string) { const [upload] = await this.database.db.update(uploads).set({ status: 'cancelled', failureReason: 'Carga cancelada.', updatedAt: new Date() }).where(and(eq(uploads.accountId, accountId), eq(uploads.id, id), eq(uploads.status, 'initiated'))).returning(); return upload; }
+  async claimScan(id: string) { const [upload] = await this.database.db.update(uploads).set({ status: 'scanning', updatedAt: new Date() }).where(and(eq(uploads.id, id), inArray(uploads.status, ['uploaded', 'scanning']))).returning(); return upload; }
+  async ready(id: string, value: UploadInspection) { return this.database.db.transaction(async tx => { const [upload] = await tx.select().from(uploads).where(and(eq(uploads.id, id), eq(uploads.status, 'scanning'))).limit(1).for('update'); if (!upload) return; const [resource] = await tx.select().from(resources).where(eq(resources.id, upload.resourceId)).limit(1); if (!resource || resource.currentVersionId) return; const [version] = await tx.insert(resourceVersions).values({ resourceId: resource.id, authorUserId: resource.authorUserId, ordinal: 1, content: '', contentHash: value.sha256, storageKey: value.cleanKey, mediaType: value.detectedMediaType, byteSize: upload.declaredSize }).returning(); await tx.update(resources).set({ currentVersionId: version!.id, updatedAt: new Date() }).where(eq(resources.id, resource.id)); await tx.update(uploads).set({ status: 'ready', cleanKey: value.cleanKey, sha256: value.sha256, detectedMediaType: value.detectedMediaType, updatedAt: new Date() }).where(eq(uploads.id, id)); }); }
+}

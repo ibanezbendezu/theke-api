@@ -11,4 +11,12 @@ import { NotesController } from './interfaces/http/notes.controller.js';
 import { NoteService } from './modules/resources/note.service.js';
 import { OrganizationController } from './interfaces/http/organization.controller.js';
 import { OrganizationService } from './modules/projects/organization.service.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, OrganizationService] }) export class AppModule {}
+import { UploadsController } from './interfaces/http/uploads.controller.js';
+import { UploadService } from './modules/uploads/upload.service.js';
+import { UploadProcessor } from './modules/uploads/upload.processor.js';
+import { UploadRepository } from './modules/uploads/upload.repository.js';
+import { UploadQueue } from './infrastructure/queue/upload.queue.js';
+import { S3UploadStorage } from './infrastructure/storage/s3-upload.storage.js';
+import { ClamAvScanner } from './infrastructure/security/clamav.scanner.js';
+import { MALWARE_SCANNER, UPLOAD_STORAGE } from './modules/uploads/upload.ports.js';
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
