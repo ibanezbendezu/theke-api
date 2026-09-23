@@ -9,4 +9,6 @@ import { ProjectsController } from './interfaces/http/projects.controller.js';
 import { ProjectService } from './modules/projects/project.service.js';
 import { NotesController } from './interfaces/http/notes.controller.js';
 import { NoteService } from './modules/resources/note.service.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService] }) export class AppModule {}
+import { OrganizationController } from './interfaces/http/organization.controller.js';
+import { OrganizationService } from './modules/projects/organization.service.js';
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, OrganizationService] }) export class AppModule {}

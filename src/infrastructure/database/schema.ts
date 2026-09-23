@@ -33,3 +33,20 @@ export const resourceVersions = pgTable('resource_versions', {
 }, (table) => [
   uniqueIndex('resource_versions_resource_ordinal_uq').on(table.resourceId, table.ordinal),
 ]);
+export const folders = pgTable('folders', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id),
+  name: text('name').notNull(),
+  parentFolderId: uuid('parent_folder_id'),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+export const projectResources = pgTable('project_resources', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id),
+  resourceId: uuid('resource_id').notNull().references(() => resources.id),
+  folderId: uuid('folder_id').references(() => folders.id),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [uniqueIndex('project_resources_project_resource_uq').on(table.projectId, table.resourceId)]);

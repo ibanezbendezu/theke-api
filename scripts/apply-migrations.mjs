@@ -5,6 +5,7 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const migrations = [
   ['projects', '../drizzle/0002_projects.sql'],
   ['resources', '../drizzle/0003_note_resources.sql'],
+  ['folders', '../drizzle/0004_project_organization.sql'],
 ];
 try {
   for (const [table, path] of migrations) {
