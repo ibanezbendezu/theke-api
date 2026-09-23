@@ -1,1 +1,46 @@
-{"openapi":"3.1.0","info":{"title":"Theke API","version":"1.0.0"},"paths":{"/v1/me":{"get":{"operationId":"getMe","security":[{"bearerAuth":[]}],"responses":{"200":{"description":"Identidad local y cuenta personal","content":{"application/json":{"schema":{"$ref":"#/components/schemas/MeResponse"}}}},"401":{"description":"Sesión ausente, vencida o no autorizada","content":{"application/json":{"schema":{"$ref":"#/components/schemas/ApiErrorResponse"}}}}}}}},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}},"schemas":{"User":{"type":"object","required":["id","email","displayName"],"properties":{"id":{"type":"string","format":"uuid"},"email":{"type":["string","null"],"format":"email"},"displayName":{"type":["string","null"]}}},"Account":{"type":"object","required":["id","name"],"properties":{"id":{"type":"string","format":"uuid"},"name":{"type":"string"}}},"Membership":{"type":"object","required":["id","role"],"properties":{"id":{"type":"string","format":"uuid"},"role":{"type":"string","enum":["owner","member"]}}},"Me":{"type":"object","required":["user","account","membership"],"properties":{"user":{"$ref":"#/components/schemas/User"},"account":{"$ref":"#/components/schemas/Account"},"membership":{"$ref":"#/components/schemas/Membership"}}},"MeResponse":{"type":"object","required":["data"],"properties":{"data":{"$ref":"#/components/schemas/Me"}}},"ApiError":{"type":"object","required":["code","message","requestId"],"properties":{"code":{"type":"string"},"message":{"type":"string"},"details":{},"requestId":{"type":"string"}}},"ApiErrorResponse":{"type":"object","required":["error"],"properties":{"error":{"$ref":"#/components/schemas/ApiError"}}}}}}
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Theke API", "version": "1.0.0" },
+  "paths": {
+    "/v1/me": {
+      "get": { "operationId": "getMe", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Identidad local", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/v1/projects": {
+      "get": { "operationId": "listProjects", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "archived"], "default": "active" } }, { "name": "cursor", "in": "query", "schema": { "type": "string" } }, { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50 } }], "responses": { "200": { "description": "Página de proyectos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectListResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } } },
+      "post": { "operationId": "createProject", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectInput" } } } }, "responses": { "201": { "description": "Proyecto creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" } } }
+    },
+    "/v1/projects/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/ProjectId" }],
+      "get": { "operationId": "getProject", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Proyecto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "operationId": "renameProject", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectInput" } } } }, "responses": { "200": { "description": "Proyecto renombrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/projects/{id}/archive": {
+      "post": { "operationId": "archiveProject", "security": [{ "bearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/ProjectId" }], "responses": { "201": { "description": "Proyecto archivado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/projects/{id}/restore": {
+      "post": { "operationId": "restoreProject", "security": [{ "bearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/ProjectId" }], "responses": { "201": { "description": "Proyecto restaurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "parameters": { "ProjectId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } },
+    "responses": {
+      "BadRequest": { "description": "Solicitud inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } },
+      "Unauthorized": { "description": "Sesión inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } },
+      "NotFound": { "description": "No encontrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } }
+    },
+    "schemas": {
+      "User": { "type": "object", "required": ["id", "email", "displayName"], "properties": { "id": { "type": "string", "format": "uuid" }, "email": { "type": ["string", "null"], "format": "email" }, "displayName": { "type": ["string", "null"] } } },
+      "Account": { "type": "object", "required": ["id", "name"], "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" } } },
+      "Membership": { "type": "object", "required": ["id", "role"], "properties": { "id": { "type": "string", "format": "uuid" }, "role": { "type": "string", "enum": ["owner", "member"] } } },
+      "Me": { "type": "object", "required": ["user", "account", "membership"], "properties": { "user": { "$ref": "#/components/schemas/User" }, "account": { "$ref": "#/components/schemas/Account" }, "membership": { "$ref": "#/components/schemas/Membership" } } },
+      "MeResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Me" } } },
+      "Project": { "type": "object", "required": ["id", "name", "archivedAt", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "ProjectInput": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } } },
+      "ProjectResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Project" } } },
+      "ProjectListResponse": { "type": "object", "required": ["data", "meta"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } }, "meta": { "type": "object", "required": ["nextCursor"], "properties": { "nextCursor": { "type": ["string", "null"] } } } } },
+      "ApiError": { "type": "object", "required": ["code", "message", "requestId"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "details": {}, "requestId": { "type": "string" } } },
+      "ApiErrorResponse": { "type": "object", "required": ["error"], "properties": { "error": { "$ref": "#/components/schemas/ApiError" } } }
+    }
+  }
+}

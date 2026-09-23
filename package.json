@@ -5,9 +5,9 @@
   "type": "module",
   "engines": { "node": ">=24" },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
+    "dev": "tsx --env-file-if-exists=.env watch src/main.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/main.js",
+    "start": "node --env-file-if-exists=.env dist/main.js",
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "vitest run tests/e2e",

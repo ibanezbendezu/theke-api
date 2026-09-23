@@ -1,6 +1,29 @@
 node_modules/
 dist/
+coverage/
+test-results/
+playwright-report/
+logs/
+*.log
+*.tsbuildinfo
+.eslintcache
+.npm-cache/
+
+# Local environment and secrets
 .env
 .env.*
 !.env.example
-coverage/
+*.local
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local tooling and editors
+.codex/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.suo
+*.sw?
