@@ -19,11 +19,20 @@
     },
     "/v1/projects/{id}/restore": {
       "post": { "operationId": "restoreProject", "security": [{ "bearerAuth": [] }], "parameters": [{ "$ref": "#/components/parameters/ProjectId" }], "responses": { "201": { "description": "Proyecto restaurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjectResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/notes": {
+      "get": { "operationId": "listNotes", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "cursor", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Página de notas", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteListResponse" } } } } } },
+      "post": { "operationId": "createNote", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteInput" } } } }, "responses": { "201": { "description": "Nota creada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteResponse" } } } } } }
+    },
+    "/v1/notes/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/NoteId" }],
+      "get": { "operationId": "getNote", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Nota", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "operationId": "updateNote", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteInput" } } } }, "responses": { "200": { "description": "Nota actualizada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
     }
   },
   "components": {
     "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
-    "parameters": { "ProjectId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } },
+    "parameters": { "ProjectId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, "NoteId": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } } },
     "responses": {
       "BadRequest": { "description": "Solicitud inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } },
       "Unauthorized": { "description": "Sesión inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } },
@@ -39,6 +48,11 @@
       "ProjectInput": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } } },
       "ProjectResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Project" } } },
       "ProjectListResponse": { "type": "object", "required": ["data", "meta"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Project" } }, "meta": { "type": "object", "required": ["nextCursor"], "properties": { "nextCursor": { "type": ["string", "null"] } } } } },
+      "NoteVersion": { "type": "object", "required": ["id", "ordinal", "content", "createdAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "ordinal": { "type": "integer" }, "content": { "type": "string" }, "createdAt": { "type": "string", "format": "date-time" } } },
+      "Note": { "type": "object", "required": ["id", "title", "description", "type", "creationMethod", "createdAt", "updatedAt", "currentVersion"], "properties": { "id": { "type": "string", "format": "uuid" }, "title": { "type": "string", "minLength": 1, "maxLength": 160 }, "description": { "type": ["string", "null"] }, "type": { "const": "note" }, "creationMethod": { "const": "manual" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }, "currentVersion": { "$ref": "#/components/schemas/NoteVersion" }, "contentUnchanged": { "type": "boolean" } } },
+      "NoteInput": { "type": "object", "required": ["title", "content"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 160 }, "description": { "type": "string" }, "content": { "type": "string" } } },
+      "NoteResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Note" } } },
+      "NoteListResponse": { "type": "object", "required": ["data", "meta"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Note" } }, "meta": { "type": "object", "required": ["nextCursor"], "properties": { "nextCursor": { "type": ["string", "null"] } } } } },
       "ApiError": { "type": "object", "required": ["code", "message", "requestId"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "details": {}, "requestId": { "type": "string" } } },
       "ApiErrorResponse": { "type": "object", "required": ["error"], "properties": { "error": { "$ref": "#/components/schemas/ApiError" } } }
     }

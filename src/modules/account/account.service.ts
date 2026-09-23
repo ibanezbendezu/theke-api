@@ -9,6 +9,21 @@ export class AccountService {
   constructor(@Inject(Database) private readonly database: Database) {}
 
   async ensureLocalUser(identity: ExternalIdentity): Promise<LocalIdentity> {
+    if (identity.email === undefined && identity.displayName === undefined) {
+      const [existing] = await this.database.db.select({
+        userId: users.id, email: users.email, displayName: users.displayName,
+        accountId: accounts.id, accountName: accounts.name,
+        membershipId: memberships.id, role: memberships.role,
+      }).from(users)
+        .innerJoin(accounts, eq(accounts.personalOwnerUserId, users.id))
+        .innerJoin(memberships, and(eq(memberships.accountId, accounts.id), eq(memberships.userId, users.id)))
+        .where(eq(users.clerkUserId, identity.clerkUserId)).limit(1);
+      if (existing) return {
+        user: { id: existing.userId, email: existing.email, displayName: existing.displayName },
+        account: { id: existing.accountId, name: existing.accountName },
+        membership: { id: existing.membershipId, role: existing.role },
+      };
+    }
     return this.database.db.transaction(async (tx) => {
       const suppliedMetadata = {
         ...(identity.email !== undefined ? { email: identity.email } : {}),

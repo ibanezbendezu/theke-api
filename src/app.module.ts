@@ -7,4 +7,6 @@ import { MeController } from './interfaces/http/me.controller.js';
 import { ClerkWebhookController } from './interfaces/http/clerk-webhook.controller.js';
 import { ProjectsController } from './interfaces/http/projects.controller.js';
 import { ProjectService } from './modules/projects/project.service.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService] }) export class AppModule {}
+import { NotesController } from './interfaces/http/notes.controller.js';
+import { NoteService } from './modules/resources/note.service.js';
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService] }) export class AppModule {}
