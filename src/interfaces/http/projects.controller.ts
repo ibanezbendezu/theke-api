@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthContext, type AuthContextValue } from '../../infrastructure/auth/auth-context.js';
 import { ClerkAuthGuard } from '../../infrastructure/auth/clerk-auth.guard.js';
 import { AccountService } from '../../modules/account/account.service.js';
@@ -7,7 +7,10 @@ import { ProjectService } from '../../modules/projects/project.service.js';
 @Controller('v1/projects')
 @UseGuards(ClerkAuthGuard)
 export class ProjectsController {
-  constructor(private readonly accounts: AccountService, private readonly projects: ProjectService) {}
+  constructor(
+    @Inject(AccountService) private readonly accounts: AccountService,
+    @Inject(ProjectService) private readonly projects: ProjectService,
+  ) {}
 
   private async accountId(auth: AuthContextValue) { return (await this.accounts.ensureLocalUser(auth)).account.id; }
 

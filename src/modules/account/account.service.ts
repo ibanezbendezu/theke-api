@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { accounts, memberships, users } from '../../infrastructure/database/schema.js';
@@ -6,7 +6,7 @@ import type { ExternalIdentity, LocalIdentity } from './account.types.js';
 
 @Injectable()
 export class AccountService {
-  constructor(private readonly database: Database) {}
+  constructor(@Inject(Database) private readonly database: Database) {}
 
   async ensureLocalUser(identity: ExternalIdentity): Promise<LocalIdentity> {
     return this.database.db.transaction(async (tx) => {

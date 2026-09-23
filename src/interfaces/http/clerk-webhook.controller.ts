@@ -1,11 +1,11 @@
-import { BadRequestException, Controller, Headers, Post, RawBodyRequest, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Headers, Inject, Post, RawBodyRequest, Req } from '@nestjs/common';
 import { verifyWebhook } from '@clerk/backend/webhooks';
 import type { FastifyRequest } from 'fastify';
 import { AccountService } from '../../modules/account/account.service.js';
 
 @Controller('v1/webhooks')
 export class ClerkWebhookController {
-  constructor(private readonly accounts: AccountService) {}
+  constructor(@Inject(AccountService) private readonly accounts: AccountService) {}
   @Post('clerk')
   async clerk(@Req() request: RawBodyRequest<FastifyRequest>, @Headers() headers: Record<string, string>) {
     if (!request.rawBody) throw new BadRequestException('Webhook sin cuerpo verificable');

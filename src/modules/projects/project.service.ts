@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { projects } from '../../infrastructure/database/schema.js';
@@ -30,7 +30,7 @@ function decodeCursor(value?: string): [Date, string] | undefined {
 
 @Injectable()
 export class ProjectService {
-  constructor(private readonly database: Database) {}
+  constructor(@Inject(Database) private readonly database: Database) {}
 
   async list(accountId: string, status: 'active' | 'archived', cursorValue?: string, requestedLimit?: number) {
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit!), 1), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;

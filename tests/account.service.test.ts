@@ -55,5 +55,5 @@ integration('ensureLocalUser con PostgreSQL', () => {
     expect(createdAccounts).toHaveLength(2);
     expect(createdMemberships).toHaveLength(2);
     expect(new Set(createdMemberships.map((membership) => membership.accountId)).size).toBe(2);
-  });
+  }, 20_000);
 });

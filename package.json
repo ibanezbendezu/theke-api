@@ -5,9 +5,10 @@
   "type": "module",
   "engines": { "node": ">=24" },
   "scripts": {
-    "dev": "tsx --env-file-if-exists=.env watch src/main.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=.env dist/main.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/apply-project-migration.mjs",
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "vitest run tests/e2e",
