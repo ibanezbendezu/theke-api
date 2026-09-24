@@ -5,16 +5,18 @@ import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { diagramRevisions, diagrams, folders, projects, resources } from '../../infrastructure/database/schema.js';
 
-const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
+const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, background: { variant: 'dots' as const, tone: 'default' as const } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
 type Document = typeof diagrams.$inferSelect.document;
 function validDocument(value: unknown): Document {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new BadRequestException('Documento de Canvas inválido.');
   const document = value as Partial<Document>;
+  const background = document.background;
   if (document.schemaVersion !== 1 || !Array.isArray(document.nodes) || !Array.isArray(document.edges) || !document.viewport ||
     ![document.viewport.x, document.viewport.y, document.viewport.zoom].every(item => typeof item === 'number' && Number.isFinite(item)) || document.viewport.zoom <= 0 ||
     document.nodes.some(item => !item || typeof item !== 'object' || typeof (item as { id?: unknown }).id !== 'string' || !(item as { id: string }).id || !(item as { position?: unknown }).position || !(item as { data?: unknown }).data) ||
     document.edges.some(item => !item || typeof item !== 'object' || !['id', 'source', 'target'].every(key => typeof (item as Record<string, unknown>)[key] === 'string')) ||
+    (background !== undefined && (!background || !['plain', 'dots', 'grid'].includes(background.variant) || !['default', 'surface'].includes(background.tone))) ||
     JSON.stringify(value).length > 5_000_000) throw new BadRequestException('Documento de Canvas inválido o demasiado grande.');
   return document as Document;
 }

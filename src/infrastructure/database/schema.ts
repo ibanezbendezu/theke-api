@@ -16,7 +16,7 @@ export const diagrams = pgTable('diagrams', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id),
   name: text('name').notNull(),
-  document: jsonb('document').$type<{ schemaVersion: number; nodes: unknown[]; edges: unknown[]; viewport: { x: number; y: number; zoom: number } }>().notNull(),
+  document: jsonb('document').$type<{ schemaVersion: number; nodes: unknown[]; edges: unknown[]; viewport: { x: number; y: number; zoom: number }; background?: { variant: 'plain' | 'dots' | 'grid'; tone: 'default' | 'surface' } }>().notNull(),
   revision: integer('revision').default(0).notNull(),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

@@ -21,8 +21,10 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('diagramas con PostgreSQL', ()
     await expect(service.save(accountId, created.id, { document: { ...document, nodes: [{ ...document.nodes[0], data: { resourceId: crypto.randomUUID() } }] }, expectedRevision: 1, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('Recurso del Canvas no encontrado');
     const [folder] = await database.db.insert(folders).values({ projectId, name: 'Fuentes' }).returning();
     const folderDiagram = await service.create(accountId, projectId, 'Carpetas');
-    const folderDocument = { ...document, nodes: [{ id: 'folder-1', type: 'folder', position: { x: 0, y: 0 }, data: { folderId: folder.id, projectId } }] };
+    const folderDocument = { ...document, background: { variant: 'grid', tone: 'surface' }, nodes: [{ id: 'folder-1', type: 'folder', position: { x: 0, y: 0 }, data: { folderId: folder.id, projectId } }] };
     expect((await service.save(accountId, folderDiagram.id, { document: folderDocument, expectedRevision: 0, idempotencyKey: crypto.randomUUID() })).revision).toBe(1);
+    expect((await service.get(accountId, folderDiagram.id)).document.background).toEqual({ variant: 'grid', tone: 'surface' });
+    await expect(service.save(accountId, folderDiagram.id, { document: { ...folderDocument, background: { variant: 'danger', tone: 'surface' } }, expectedRevision: 1, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('Documento de Canvas inválido');
     await expect(service.save(accountId, folderDiagram.id, { document: { ...folderDocument, nodes: [{ ...folderDocument.nodes[0], data: { folderId: crypto.randomUUID(), projectId } }] }, expectedRevision: 1, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('Carpeta del Canvas no encontrada');
     const [summary] = await service.list(accountId, projectId, 'active'); expect(summary).not.toHaveProperty('document');
     await expect(service.save(accountId, created.id, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('revisión remota cambió');

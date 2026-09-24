@@ -1396,7 +1396,8 @@
           "schemaVersion": { "type": "integer" },
           "nodes": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
           "edges": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
-          "viewport": { "type": "object", "required": ["x", "y", "zoom"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "zoom": { "type": "number" } } }
+          "viewport": { "type": "object", "required": ["x", "y", "zoom"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "zoom": { "type": "number" } } },
+          "background": { "type": "object", "required": ["variant", "tone"], "properties": { "variant": { "type": "string", "enum": ["plain", "dots", "grid"] }, "tone": { "type": "string", "enum": ["default", "surface"] } } }
         }
       },
       "Diagram": {
