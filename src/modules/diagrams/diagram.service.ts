@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { isDeepStrictEqual } from 'node:util';
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { diagramRevisions, diagrams, projects } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, projects, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
@@ -36,11 +36,14 @@ export class DiagramService {
       if (prior) { if (!isDeepStrictEqual(prior.document, document)) throw new ConflictException('La clave de idempotencia ya se usó para otro documento.'); return { revision: prior.revision, document: prior.document, updatedAt: prior.createdAt }; }
       if (current.archivedAt) throw new ConflictException('El diagrama está archivado.');
       if (current.revision !== input.expectedRevision) throw new ConflictException({ message: 'La revisión remota cambió.', details: { currentRevision: current.revision } });
+      const resourceIds = [...new Set(document.nodes.map(node => (node as { data?: { resourceId?: unknown } }).data?.resourceId).filter((value): value is string => typeof value === 'string'))];
+      if (resourceIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de recurso inválida.');
+      if (resourceIds.length) { const owned = await tx.select({ id: resources.id }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, resourceIds))).for('share'); if (owned.length !== resourceIds.length) throw new NotFoundException('Recurso del Canvas no encontrado.'); }
       const revision = current.revision + 1; const updatedAt = new Date();
       await tx.update(diagrams).set({ document, revision, updatedAt }).where(eq(diagrams.id, id));
       await tx.insert(diagramRevisions).values({ diagramId: id, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
       return { revision, document, updatedAt };
-    });
+    }, { isolationLevel: 'serializable' });
   }
   async rename(accountId: string, id: string, nameValue: unknown) { await this.get(accountId, id); const [diagram] = await this.database.db.update(diagrams).set({ name: validName(nameValue), updatedAt: new Date() }).where(eq(diagrams.id, id)).returning(); return diagram!; }
   async duplicate(accountId: string, id: string, nameValue?: unknown) { const source = await this.get(accountId, id); const name = nameValue == null ? `${source.name} (copia)`.slice(0, 120) : validName(nameValue); const [copy] = await this.database.db.insert(diagrams).values({ projectId: source.projectId, name, document: source.document }).returning(); return copy!; }
