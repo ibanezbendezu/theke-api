@@ -924,9 +924,21 @@
         }
       }
     },
+    "/v1/projects/{projectId}/diagrams": {
+      "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": { "operationId": "listDiagrams", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "archived"] } }], "responses": { "200": { "description": "Diagramas del proyecto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramListResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "post": { "operationId": "createDiagram", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramInput" } } } }, "responses": { "201": { "description": "Diagrama creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/diagrams/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+      "get": { "operationId": "getDiagram", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Diagrama", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
+      "patch": { "operationId": "renameDiagram", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramInput" } } } }, "responses": { "200": { "description": "Diagrama renombrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/diagrams/{id}/duplicates": { "post": { "operationId": "duplicateDiagram", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramInput" } } } }, "responses": { "201": { "description": "Diagrama duplicado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } } },
+    "/v1/diagrams/{id}/restore": { "post": { "operationId": "restoreDiagram", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "responses": { "201": { "description": "Diagrama restaurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } } },
     "/v1/impacts/{entityType}/{id}": {
       "parameters": [
-        { "name": "entityType", "in": "path", "required": true, "schema": { "type": "string", "enum": ["resource", "project", "folder"] } },
+        { "name": "entityType", "in": "path", "required": true, "schema": { "type": "string", "enum": ["resource", "project", "folder", "diagram"] } },
         { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
       ],
       "get": {
@@ -1376,6 +1388,27 @@
           }
         }
       },
+      "DiagramDocument": {
+        "type": "object",
+        "required": ["schemaVersion", "nodes", "edges", "viewport"],
+        "properties": {
+          "schemaVersion": { "type": "integer" },
+          "nodes": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "edges": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "viewport": { "type": "object", "required": ["x", "y", "zoom"], "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "zoom": { "type": "number" } } }
+        }
+      },
+      "Diagram": {
+        "type": "object",
+        "required": ["id", "projectId", "name", "document", "archivedAt", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "projectId": { "type": "string", "format": "uuid" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "document": { "$ref": "#/components/schemas/DiagramDocument" }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DiagramInput": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } } },
+      "DiagramResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Diagram" } } },
+      "DiagramListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Diagram" } } } },
       "ProjectInput": {
         "type": "object",
         "required": [
@@ -1941,7 +1974,7 @@
         "type": "object",
         "required": ["entityType", "entityId", "entityName", "action", "state", "affected", "locations", "consequences", "recommendedAction", "deletionAllowed", "confirmationPhrase", "impactVersion"],
         "properties": {
-          "entityType": { "type": "string", "enum": ["resource", "project", "folder"] },
+          "entityType": { "type": "string", "enum": ["resource", "project", "folder", "diagram"] },
           "entityId": { "type": "string", "format": "uuid" },
           "entityName": { "type": "string" },
           "action": { "type": "string", "enum": ["archive", "delete"] },

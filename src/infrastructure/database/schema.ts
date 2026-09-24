@@ -12,6 +12,17 @@ export const projects = pgTable('projects', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export const diagrams = pgTable('diagrams', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  projectId: uuid('project_id').notNull().references(() => projects.id),
+  name: text('name').notNull(),
+  document: jsonb('document').$type<{ schemaVersion: number; nodes: unknown[]; edges: unknown[]; viewport: { x: number; y: number; zoom: number } }>().notNull(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
 export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
@@ -95,7 +106,7 @@ export const operationReceipts = pgTable('operation_receipts', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
   idempotencyKey: text('idempotency_key').notNull(),
-  entityType: text('entity_type').$type<'resource' | 'project' | 'folder'>().notNull(),
+  entityType: text('entity_type').$type<'resource' | 'project' | 'folder' | 'diagram'>().notNull(),
   entityId: uuid('entity_id').notNull(),
   action: text('action').$type<'archive' | 'delete'>().notNull(),
   result: jsonb('result').$type<Record<string, unknown>>().notNull(),
