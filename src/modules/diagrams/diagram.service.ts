@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { diagramRevisions, diagrams, projects, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, folders, projects, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
@@ -30,7 +30,7 @@ export class DiagramService {
     if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) throw new BadRequestException('Revisión esperada inválida.');
     if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey.trim() || input.idempotencyKey.length > 120) throw new BadRequestException('Falta la clave de idempotencia.');
     return this.database.db.transaction(async tx => {
-      const [current] = await tx.select({ revision: diagrams.revision, archivedAt: diagrams.archivedAt }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, id), isNull(diagrams.deletedAt))).for('update').limit(1);
+      const [current] = await tx.select({ revision: diagrams.revision, archivedAt: diagrams.archivedAt, projectId: diagrams.projectId }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, id), isNull(diagrams.deletedAt))).for('update').limit(1);
       if (!current) throw new NotFoundException('Diagrama no encontrado.');
       const [prior] = await tx.select({ revision: diagramRevisions.revision, document: diagramRevisions.document, createdAt: diagramRevisions.createdAt }).from(diagramRevisions).where(and(eq(diagramRevisions.diagramId, id), eq(diagramRevisions.idempotencyKey, input.idempotencyKey as string))).limit(1);
       if (prior) { if (!isDeepStrictEqual(prior.document, document)) throw new ConflictException('La clave de idempotencia ya se usó para otro documento.'); return { revision: prior.revision, document: prior.document, updatedAt: prior.createdAt }; }
@@ -39,6 +39,10 @@ export class DiagramService {
       const resourceIds = [...new Set(document.nodes.map(node => (node as { data?: { resourceId?: unknown } }).data?.resourceId).filter((value): value is string => typeof value === 'string'))];
       if (resourceIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de recurso inválida.');
       if (resourceIds.length) { const owned = await tx.select({ id: resources.id }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, resourceIds))).for('share'); if (owned.length !== resourceIds.length) throw new NotFoundException('Recurso del Canvas no encontrado.'); }
+      const folderNodes = document.nodes.filter(node => (node as { type?: string }).type === 'folder').map(node => (node as { data: { folderId?: unknown; projectId?: unknown } }).data);
+      const folderIds = [...new Set(folderNodes.map(node => node.folderId))];
+      if (folderNodes.some(node => typeof node.folderId !== 'string' || typeof node.projectId !== 'string' || node.projectId !== current.projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.folderId))) throw new BadRequestException('Referencia de carpeta inválida.');
+      if (folderIds.length) { const owned = await tx.select({ id: folders.id }).from(folders).where(and(eq(folders.projectId, current.projectId), inArray(folders.id, folderIds as string[]))).for('share'); if (owned.length !== folderIds.length) throw new NotFoundException('Carpeta del Canvas no encontrada.'); }
       const revision = current.revision + 1; const updatedAt = new Date();
       await tx.update(diagrams).set({ document, revision, updatedAt }).where(eq(diagrams.id, id));
       await tx.insert(diagramRevisions).values({ diagramId: id, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
