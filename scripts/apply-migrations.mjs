@@ -11,6 +11,7 @@ const migrations = [
   ['resource_accessibility', '../drizzle/0006_resource_accessibility.sql'],
   ['resource_links', '../drizzle/0007_resource_links.sql'],
   ['resources_title_search_idx', '../drizzle/0008_resource_search.sql'],
+  ['operation_receipts', '../drizzle/0009_destructive_lifecycle.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

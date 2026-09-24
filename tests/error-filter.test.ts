@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { UnauthorizedException } from '@nestjs/common';
+import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { HttpErrorFilter } from '../src/interfaces/http/http-exception.filter.js';
 describe('errores HTTP', () => {
   it('devuelve 401 uniforme con requestId sin datos privados', () => {
@@ -8,5 +8,11 @@ describe('errores HTTP', () => {
     new HttpErrorFilter().catch(new UnauthorizedException('Sesión inválida'), host);
     expect(send).toHaveBeenCalledWith({ error: { code: 'UNAUTHORIZED', message: 'Sesión inválida', requestId: 'req-1' } });
     expect(header).toHaveBeenCalledWith('x-request-id', 'req-1');
+  });
+  it('conserva detalles seguros para renovar una confirmación obsoleta', () => {
+    const send = vi.fn(); const header = vi.fn(); const status = vi.fn(() => ({ send }));
+    const host = { switchToHttp: () => ({ getResponse: () => ({ status, header }), getRequest: () => ({ id: 'req-2' }) }) } as any;
+    new HttpErrorFilter().catch(new ConflictException({ message: 'El impacto cambió.', details: { impact: { impactVersion: 'new' } } }), host);
+    expect(send).toHaveBeenCalledWith({ error: { code: 'REQUEST_FAILED', message: 'El impacto cambió.', details: { impact: { impactVersion: 'new' } }, requestId: 'req-2' } });
   });
 });

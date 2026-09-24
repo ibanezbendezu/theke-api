@@ -924,6 +924,32 @@
         }
       }
     },
+    "/v1/impacts/{entityType}/{id}": {
+      "parameters": [
+        { "name": "entityType", "in": "path", "required": true, "schema": { "type": "string", "enum": ["resource", "project", "folder"] } },
+        { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "get": {
+        "operationId": "getImpact",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "action", "in": "query", "required": true, "schema": { "type": "string", "enum": ["archive", "delete"] } }],
+        "responses": { "200": { "description": "Impacto actual", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImpactResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "post": {
+        "operationId": "executeImpactAction",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImpactConfirmationInput" } } } },
+        "responses": { "201": { "description": "Operación ejecutada una vez", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImpactResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "El impacto cambió", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } }
+      }
+    },
+    "/v1/resources/{id}/restore": {
+      "post": {
+        "operationId": "restoreResource",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "201": { "description": "Recurso restaurado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
     "/v1/resources": {
       "get": {
         "operationId": "listResources",
@@ -950,6 +976,15 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["active", "archived"],
+              "default": "active"
             }
           },
           {
@@ -1301,6 +1336,8 @@
           "id",
           "name",
           "archivedAt",
+          "deletedAt",
+          "purgeAfter",
           "createdAt",
           "updatedAt"
         ],
@@ -1319,6 +1356,14 @@
               "string",
               "null"
             ],
+            "format": "date-time"
+          },
+          "deletedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "purgeAfter": {
+            "type": ["string", "null"],
             "format": "date-time"
           },
           "createdAt": {
@@ -1611,7 +1656,8 @@
         "required": [
           "id",
           "resourceId",
-          "folderId"
+          "folderId",
+          "archivedAt"
         ],
         "properties": {
           "id": {
@@ -1640,6 +1686,10 @@
           },
           "type": {
             "type": "string"
+          },
+          "archivedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
           },
           "updatedAt": {
             "type": "string",
@@ -1887,6 +1937,44 @@
           }
         }
       },
+      "Impact": {
+        "type": "object",
+        "required": ["entityType", "entityId", "entityName", "action", "state", "affected", "locations", "consequences", "recommendedAction", "deletionAllowed", "confirmationPhrase", "impactVersion"],
+        "properties": {
+          "entityType": { "type": "string", "enum": ["resource", "project", "folder"] },
+          "entityId": { "type": "string", "format": "uuid" },
+          "entityName": { "type": "string" },
+          "action": { "type": "string", "enum": ["archive", "delete"] },
+          "state": { "type": "string" },
+          "affected": {
+            "type": "object",
+            "required": ["projects", "folders", "resources", "placements"],
+            "properties": { "projects": { "type": "integer" }, "folders": { "type": "integer" }, "resources": { "type": "integer" }, "placements": { "type": "integer" } }
+          },
+          "locations": { "type": "array", "items": { "type": "string" } },
+          "consequences": { "type": "array", "items": { "type": "string" } },
+          "recommendedAction": { "type": ["string", "null"], "enum": ["archive", null] },
+          "deletionAllowed": { "type": "boolean" },
+          "confirmationPhrase": { "type": "string" },
+          "impactVersion": { "type": "string" },
+          "purgeAfter": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ImpactResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/Impact" } }
+      },
+      "ImpactConfirmationInput": {
+        "type": "object",
+        "required": ["action", "impactVersion", "confirmation", "idempotencyKey"],
+        "properties": {
+          "action": { "type": "string", "enum": ["archive", "delete"] },
+          "impactVersion": { "type": "string" },
+          "confirmation": { "type": "string" },
+          "idempotencyKey": { "type": "string", "maxLength": 120 }
+        }
+      },
       "Resource": {
         "type": "object",
         "required": [
@@ -1895,6 +1983,7 @@
           "type",
           "origin",
           "status",
+          "archivedAt",
           "updatedAt",
           "accessibilityRequired",
           "accessibilityMissing"
@@ -1940,11 +2029,16 @@
           "status": {
             "type": "string",
             "enum": [
-              "ready"
+              "ready",
+              "archived"
             ]
           },
           "updatedAt": {
             "type": "string",
+            "format": "date-time"
+          },
+          "archivedAt": {
+            "type": ["string", "null"],
             "format": "date-time"
           },
           "content": {

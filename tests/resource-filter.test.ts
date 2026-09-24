@@ -10,7 +10,7 @@ describe('filtros de recursos', () => {
     const repository = { list: vi.fn().mockResolvedValue([row(1)]), get: vi.fn(), setAccessibility: vi.fn() };
     const service = new ResourceService(repository as never, {} as never);
     await service.list('account-1', { query: '  fuente  ', type: 'link', projectId, folderId });
-    expect(repository.list).toHaveBeenCalledWith('account-1', { query: 'fuente', type: 'link', projectId, folderId, cursor: undefined });
+    expect(repository.list).toHaveBeenCalledWith('account-1', { query: 'fuente', type: 'link', status: 'active', projectId, folderId, cursor: undefined });
   });
 
   it('rechaza filtros inválidos', async () => {

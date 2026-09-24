@@ -40,7 +40,7 @@ export class ProjectService {
       ? or(lt(projects.createdAt, cursor[0]), and(eq(projects.createdAt, cursor[0]), lt(projects.id, cursor[1])))
       : undefined;
     const rows = await this.database.db.select().from(projects)
-      .where(and(eq(projects.accountId, accountId), visibility, page))
+      .where(and(eq(projects.accountId, accountId), isNull(projects.deletedAt), visibility, page))
       .orderBy(desc(projects.createdAt), desc(projects.id)).limit(limit + 1);
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit);
@@ -53,21 +53,21 @@ export class ProjectService {
   }
 
   async get(accountId: string, id: string) {
-    const [project] = await this.database.db.select().from(projects).where(and(eq(projects.id, id), eq(projects.accountId, accountId))).limit(1);
+    const [project] = await this.database.db.select().from(projects).where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).limit(1);
     if (!project) throw new NotFoundException('Proyecto no encontrado.');
     return project;
   }
 
   async rename(accountId: string, id: string, input: unknown) {
     const [project] = await this.database.db.update(projects).set({ name: normalizeProjectName(input), updatedAt: new Date() })
-      .where(and(eq(projects.id, id), eq(projects.accountId, accountId))).returning();
+      .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
     if (!project) throw new NotFoundException('Proyecto no encontrado.');
     return project;
   }
 
   async setArchived(accountId: string, id: string, archived: boolean) {
     const [project] = await this.database.db.update(projects).set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
-      .where(and(eq(projects.id, id), eq(projects.accountId, accountId))).returning();
+      .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
     if (!project) throw new NotFoundException('Proyecto no encontrado.');
     return project;
   }

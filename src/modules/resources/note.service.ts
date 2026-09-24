@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { resources, resourceVersions } from '../../infrastructure/database/schema.js';
 
@@ -26,7 +26,7 @@ export class NoteService {
   async list(accountId: string, cursorValue?: string) {
     const page = cursor(cursorValue);
     const condition = page ? or(lt(resources.updatedAt, page[0]), and(eq(resources.updatedAt, page[0]), lt(resources.id, page[1]))) : undefined;
-    const rows = await this.database.db.select().from(resources).where(and(eq(resources.accountId, accountId), eq(resources.type, 'note'), condition)).orderBy(desc(resources.updatedAt), desc(resources.id)).limit(21);
+    const rows = await this.database.db.select().from(resources).where(and(eq(resources.accountId, accountId), eq(resources.type, 'note'), isNull(resources.archivedAt), isNull(resources.deletedAt), condition)).orderBy(desc(resources.updatedAt), desc(resources.id)).limit(21);
     const data = rows.slice(0, 20);
     const last = data.at(-1);
     return { data, meta: { nextCursor: rows.length > 20 && last ? Buffer.from(JSON.stringify([last.updatedAt.toISOString(), last.id])).toString('base64url') : null } };
@@ -43,7 +43,7 @@ export class NoteService {
   }
 
   async get(accountId: string, id: string) {
-    const [resource] = await this.database.db.select().from(resources).where(and(eq(resources.id, id), eq(resources.accountId, accountId), eq(resources.type, 'note'))).limit(1);
+    const [resource] = await this.database.db.select().from(resources).where(and(eq(resources.id, id), eq(resources.accountId, accountId), eq(resources.type, 'note'), isNull(resources.archivedAt), isNull(resources.deletedAt))).limit(1);
     if (!resource) throw new NotFoundException('Nota no encontrada.');
     const [version] = await this.database.db.select().from(resourceVersions).where(eq(resourceVersions.id, resource.currentVersionId!)).limit(1);
     return { ...resource, currentVersion: version! };
@@ -52,7 +52,7 @@ export class NoteService {
   async update(accountId: string, authorUserId: string, id: string, value: NoteInput) {
     const note = input(value);
     return this.database.db.transaction(async tx => {
-      const [resource] = await tx.select().from(resources).where(and(eq(resources.id, id), eq(resources.accountId, accountId), eq(resources.type, 'note'))).limit(1).for('update');
+      const [resource] = await tx.select().from(resources).where(and(eq(resources.id, id), eq(resources.accountId, accountId), eq(resources.type, 'note'), isNull(resources.archivedAt), isNull(resources.deletedAt))).limit(1).for('update');
       if (!resource) throw new NotFoundException('Nota no encontrada.');
       const [current] = await tx.select().from(resourceVersions).where(eq(resourceVersions.id, resource.currentVersionId!)).limit(1);
       const contentUnchanged = current!.contentHash === hash(note.content);
