@@ -3,6 +3,7 @@ export const MALWARE_SCANNER = Symbol('MALWARE_SCANNER');
 
 export interface UploadStorage {
   presignPut(key: string, mediaType: string): Promise<string>;
+  presignGet(key: string, filename: string, mode: 'inline' | 'download'): Promise<string>;
   head(key: string): Promise<{ size: number; mediaType: string; etag: string }>;
   copy(sourceKey: string, destinationKey: string): Promise<void>;
   read(key: string): Promise<AsyncIterable<Uint8Array>>;

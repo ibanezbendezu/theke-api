@@ -72,3 +72,8 @@ export const uploads = pgTable('uploads', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [uniqueIndex('uploads_account_idempotency_uq').on(table.accountId, table.idempotencyKey)]);
+export const resourceAccessibility = pgTable('resource_accessibility', {
+  resourceId: uuid('resource_id').primaryKey().references(() => resources.id),
+  text: text('text').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});

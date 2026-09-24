@@ -1,0 +1,16 @@
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ResourceRepository } from './resource.repository.js';
+import { UPLOAD_STORAGE, type UploadStorage } from '../uploads/upload.ports.js';
+
+function decodeCursor(value?: string): [Date, string] | undefined { if (!value) return; try { const [dateValue, id] = JSON.parse(Buffer.from(value, 'base64url').toString()) as [string, string]; const date = new Date(dateValue); if (!id || Number.isNaN(date.getTime())) throw new Error(); return [date, id]; } catch { throw new BadRequestException('El cursor no es válido.'); } }
+function encodeCursor(value: { updatedAt: Date; id: string }) { return Buffer.from(JSON.stringify([value.updatedAt.toISOString(), value.id])).toString('base64url'); }
+
+@Injectable()
+export class ResourceService {
+  constructor(@Inject(ResourceRepository) private readonly repository: ResourceRepository, @Inject(UPLOAD_STORAGE) private readonly storage: UploadStorage) {}
+  private view(resource: NonNullable<Awaited<ReturnType<ResourceRepository['get']>>>) { const accessibilityRequired = resource.type === 'file' && /^(image|audio|video)\//.test(resource.mediaType ?? ''); return { id: resource.id, title: resource.title, description: resource.description, type: resource.type, mediaType: resource.mediaType, byteSize: resource.byteSize, origin: resource.type === 'file' ? 'Carga desde dispositivo' : 'Creación manual', status: 'ready' as const, updatedAt: resource.updatedAt, content: resource.type === 'note' ? resource.content : undefined, accessibilityText: resource.accessibilityText, accessibilityRequired, accessibilityMissing: accessibilityRequired && !resource.accessibilityText?.trim() }; }
+  async list(accountId: string, typeValue?: string, cursorValue?: string) { if (typeValue && !['note', 'file'].includes(typeValue)) throw new BadRequestException('El tipo de recurso no es válido.'); const rows = await this.repository.list(accountId, typeValue as 'note' | 'file' | undefined, decodeCursor(cursorValue)); const data = rows.slice(0, 20).map(row => this.view(row)); return { data, meta: { nextCursor: rows.length > 20 ? encodeCursor(rows[19]!) : null } }; }
+  async get(accountId: string, id: string) { const resource = await this.repository.get(accountId, id); if (!resource) throw new NotFoundException('Recurso no encontrado.'); return this.view(resource); }
+  async access(accountId: string, id: string, modeValue?: string) { const resource = await this.repository.get(accountId, id); if (!resource?.storageKey || resource.type !== 'file') throw new NotFoundException('Archivo no encontrado.'); const mode = modeValue === 'download' ? 'download' : 'inline'; return { url: await this.storage.presignGet(resource.storageKey, resource.title, mode), expiresIn: 300, mode }; }
+  async setAccessibility(accountId: string, id: string, value: unknown) { if (typeof value !== 'string' || value.length > 2000) throw new BadRequestException('La información de accesibilidad debe tener hasta 2000 caracteres.'); const resource = await this.repository.setAccessibility(accountId, id, value.trim()); if (!resource) throw new NotFoundException('Recurso no encontrado.'); return this.view(resource); }
+}

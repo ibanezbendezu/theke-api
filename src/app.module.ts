@@ -19,4 +19,7 @@ import { UploadQueue } from './infrastructure/queue/upload.queue.js';
 import { S3UploadStorage } from './infrastructure/storage/s3-upload.storage.js';
 import { ClamAvScanner } from './infrastructure/security/clamav.scanner.js';
 import { MALWARE_SCANNER, UPLOAD_STORAGE } from './modules/uploads/upload.ports.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
+import { ResourcesController } from './interfaces/http/resources.controller.js';
+import { ResourceService } from './modules/resources/resource.service.js';
+import { ResourceRepository } from './modules/resources/resource.repository.js';
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, ResourceService, ResourceRepository, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
