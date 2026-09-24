@@ -14,12 +14,21 @@ export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
   authorUserId: uuid('author_user_id').notNull().references(() => users.id),
-  type: text('type').$type<'note' | 'file'>().notNull(),
+  type: text('type').$type<'note' | 'file' | 'link'>().notNull(),
   title: text('title').notNull(),
   description: text('description'),
   creationMethod: text('creation_method').$type<'manual'>().notNull(),
   currentVersionId: uuid('current_version_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+export const resourceLinks = pgTable('resource_links', {
+  resourceId: uuid('resource_id').primaryKey().references(() => resources.id),
+  url: text('url').notNull(),
+  previewImageUrl: text('preview_image_url'),
+  metadataStatus: text('metadata_status').$type<'pending' | 'ready' | 'failed'>().notNull(),
+  metadataFailure: text('metadata_failure'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 export const resourceVersions = pgTable('resource_versions', {

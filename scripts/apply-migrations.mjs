@@ -9,6 +9,7 @@ const migrations = [
   ['folders', '../drizzle/0004_project_organization.sql'],
   ['uploads', '../drizzle/0005_secure_uploads.sql'],
   ['resource_accessibility', '../drizzle/0006_resource_accessibility.sql'],
+  ['resource_links', '../drizzle/0007_resource_links.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

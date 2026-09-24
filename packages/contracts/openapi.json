@@ -886,6 +886,44 @@
         }
       }
     },
+    "/v1/links": {
+      "post": {
+        "operationId": "createLink",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkInput" } } } },
+        "responses": {
+          "201": { "description": "Enlace guardado y metadatos encolados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/links/{id}": {
+      "patch": {
+        "operationId": "updateLink",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LinkUpdateInput" } } } },
+        "responses": {
+          "200": { "description": "Enlace actualizado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/links/{id}/metadata-retries": {
+      "post": {
+        "operationId": "retryLinkMetadata",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "201": { "description": "Reintento de metadatos encolado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/resources": {
       "get": {
         "operationId": "listResources",
@@ -902,7 +940,8 @@
               "type": "string",
               "enum": [
                 "note",
-                "file"
+                "file",
+                "link"
               ]
             }
           },
@@ -1852,7 +1891,8 @@
             "type": "string",
             "enum": [
               "note",
-              "file"
+              "file",
+              "link"
             ]
           },
           "mediaType": {
@@ -1895,7 +1935,32 @@
           },
           "accessibilityMissing": {
             "type": "boolean"
+          },
+          "url": {
+            "type": ["string", "null"],
+            "format": "uri"
+          },
+          "previewImageUrl": {
+            "type": ["string", "null"],
+            "format": "uri"
+          },
+          "metadataStatus": {
+            "type": ["string", "null"],
+            "enum": ["pending", "ready", "failed", null]
           }
+        }
+      },
+      "LinkInput": {
+        "type": "object",
+        "required": ["url"],
+        "properties": { "url": { "type": "string", "format": "uri", "maxLength": 2048 } }
+      },
+      "LinkUpdateInput": {
+        "type": "object",
+        "required": ["title", "description"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "description": { "type": ["string", "null"], "maxLength": 1000 }
         }
       },
       "ResourceResponse": {

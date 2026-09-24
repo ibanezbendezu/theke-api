@@ -22,4 +22,9 @@ import { MALWARE_SCANNER, UPLOAD_STORAGE } from './modules/uploads/upload.ports.
 import { ResourcesController } from './interfaces/http/resources.controller.js';
 import { ResourceService } from './modules/resources/resource.service.js';
 import { ResourceRepository } from './modules/resources/resource.repository.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, ResourceService, ResourceRepository, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
+import { LinksController } from './interfaces/http/links.controller.js';
+import { LinkService } from './modules/resources/link.service.js';
+import { LinkRepository } from './modules/resources/link.repository.js';
+import { LinkProcessor } from './modules/resources/link.processor.js';
+import { LinkMetadataFetcher } from './modules/resources/link-metadata.fetcher.js';
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController, LinksController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, NoteService, ResourceService, ResourceRepository, LinkService, LinkRepository, LinkProcessor, LinkMetadataFetcher, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
