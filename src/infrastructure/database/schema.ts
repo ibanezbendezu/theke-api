@@ -17,12 +17,21 @@ export const diagrams = pgTable('diagrams', {
   projectId: uuid('project_id').notNull().references(() => projects.id),
   name: text('name').notNull(),
   document: jsonb('document').$type<{ schemaVersion: number; nodes: unknown[]; edges: unknown[]; viewport: { x: number; y: number; zoom: number } }>().notNull(),
+  revision: integer('revision').default(0).notNull(),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export const diagramRevisions = pgTable('diagram_revisions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  diagramId: uuid('diagram_id').notNull().references(() => diagrams.id),
+  revision: integer('revision').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  document: jsonb('document').$type<typeof diagrams.$inferSelect.document>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('diagram_revisions_diagram_revision_uq').on(table.diagramId, table.revision), uniqueIndex('diagram_revisions_diagram_key_uq').on(table.diagramId, table.idempotencyKey)]);
 export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

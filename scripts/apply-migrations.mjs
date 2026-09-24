@@ -13,6 +13,7 @@ const migrations = [
   ['resources_title_search_idx', '../drizzle/0008_resource_search.sql'],
   ['operation_receipts', '../drizzle/0009_destructive_lifecycle.sql'],
   ['diagrams', '../drizzle/0010_diagrams.sql'],
+  ['diagram_revisions', '../drizzle/0011_diagram_revisions.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

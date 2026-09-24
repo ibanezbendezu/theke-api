@@ -929,6 +929,7 @@
       "get": { "operationId": "listDiagrams", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "status", "in": "query", "schema": { "type": "string", "enum": ["active", "archived"] } }], "responses": { "200": { "description": "Diagramas del proyecto", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramListResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
       "post": { "operationId": "createDiagram", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramInput" } } } }, "responses": { "201": { "description": "Diagrama creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
     },
+    "/v1/diagrams/{id}/document": { "put": { "operationId": "saveDiagramDocument", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramSaveInput" } } } }, "responses": { "200": { "description": "Revisión guardada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramSaveResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Conflicto de revisión", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } } } },
     "/v1/diagrams/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
       "get": { "operationId": "getDiagram", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Diagrama", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
@@ -1400,15 +1401,26 @@
       },
       "Diagram": {
         "type": "object",
-        "required": ["id", "projectId", "name", "document", "archivedAt", "createdAt", "updatedAt"],
+        "required": ["id", "projectId", "name", "document", "revision", "archivedAt", "createdAt", "updatedAt"],
         "properties": {
           "id": { "type": "string", "format": "uuid" }, "projectId": { "type": "string", "format": "uuid" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 },
-          "document": { "$ref": "#/components/schemas/DiagramDocument" }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
+          "document": { "$ref": "#/components/schemas/DiagramDocument" }, "revision": { "type": "integer" }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
         }
       },
+      "DiagramSummary": {
+        "type": "object",
+        "required": ["id", "projectId", "name", "revision", "archivedAt", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "projectId": { "type": "string", "format": "uuid" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "revision": { "type": "integer" }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "DiagramSaveInput": { "type": "object", "required": ["document", "expectedRevision", "idempotencyKey"], "properties": { "document": { "$ref": "#/components/schemas/DiagramDocument" }, "expectedRevision": { "type": "integer", "minimum": 0 }, "idempotencyKey": { "type": "string", "maxLength": 120 } } },
+      "DiagramSaveResult": { "type": "object", "required": ["document", "revision", "updatedAt"], "properties": { "document": { "$ref": "#/components/schemas/DiagramDocument" }, "revision": { "type": "integer" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "DiagramSaveResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/DiagramSaveResult" } } },
       "DiagramInput": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } } },
       "DiagramResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Diagram" } } },
-      "DiagramListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Diagram" } } } },
+      "DiagramListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/DiagramSummary" } } } },
       "ProjectInput": {
         "type": "object",
         "required": [
