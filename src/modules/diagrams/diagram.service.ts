@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
+import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { diagramRevisions, diagrams, folders, projects, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } });
@@ -29,7 +30,7 @@ export class DiagramService {
     const document = validDocument(input.document);
     if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) throw new BadRequestException('Revisión esperada inválida.');
     if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey.trim() || input.idempotencyKey.length > 120) throw new BadRequestException('Falta la clave de idempotencia.');
-    return this.database.db.transaction(async tx => {
+    return withSerializationRetry(() => this.database.db.transaction(async tx => {
       const [current] = await tx.select({ revision: diagrams.revision, archivedAt: diagrams.archivedAt, projectId: diagrams.projectId }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, id), isNull(diagrams.deletedAt))).for('update').limit(1);
       if (!current) throw new NotFoundException('Diagrama no encontrado.');
       const [prior] = await tx.select({ revision: diagramRevisions.revision, document: diagramRevisions.document, createdAt: diagramRevisions.createdAt }).from(diagramRevisions).where(and(eq(diagramRevisions.diagramId, id), eq(diagramRevisions.idempotencyKey, input.idempotencyKey as string))).limit(1);
@@ -47,7 +48,7 @@ export class DiagramService {
       await tx.update(diagrams).set({ document, revision, updatedAt }).where(eq(diagrams.id, id));
       await tx.insert(diagramRevisions).values({ diagramId: id, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
       return { revision, document, updatedAt };
-    }, { isolationLevel: 'serializable' });
+    }, { isolationLevel: 'serializable' }));
   }
   async rename(accountId: string, id: string, nameValue: unknown) { await this.get(accountId, id); const [diagram] = await this.database.db.update(diagrams).set({ name: validName(nameValue), updatedAt: new Date() }).where(eq(diagrams.id, id)).returning(); return diagram!; }
   async duplicate(accountId: string, id: string, nameValue?: unknown) { const source = await this.get(accountId, id); const name = nameValue == null ? `${source.name} (copia)`.slice(0, 120) : validName(nameValue); const [copy] = await this.database.db.insert(diagrams).values({ projectId: source.projectId, name, document: source.document }).returning(); return copy!; }
