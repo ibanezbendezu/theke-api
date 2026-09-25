@@ -39,6 +39,9 @@ export const resources = pgTable('resources', {
   type: text('type').$type<'note' | 'file' | 'link'>().notNull(),
   title: text('title').notNull(),
   description: text('description'),
+  aliases: jsonb('aliases').$type<string[]>().default([]).notNull(),
+  tags: jsonb('tags').$type<string[]>().default([]).notNull(),
+  properties: jsonb('properties').$type<Record<string, string | number | boolean | string[]>>().default({}).notNull(),
   creationMethod: text('creation_method').$type<'manual'>().notNull(),
   currentVersionId: uuid('current_version_id'),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -79,6 +82,25 @@ export const folders = pgTable('folders', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export const resourcePropertyDefinitions = pgTable('resource_property_definitions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  key: text('key').notNull(),
+  type: text('type').$type<'text' | 'list' | 'number' | 'checkbox' | 'date' | 'datetime'>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('resource_property_definitions_account_key_uq').on(table.accountId, table.key)]);
+export const resourceMentions = pgTable('resource_mentions', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sourceResourceId: uuid('source_resource_id').notNull().references(() => resources.id),
+  sourceVersionId: uuid('source_version_id').notNull().references(() => resourceVersions.id),
+  targetResourceId: uuid('target_resource_id').references(() => resources.id),
+  rawTarget: text('raw_target').notNull(),
+  displayText: text('display_text'),
+  anchor: text('anchor'),
+  startOffset: integer('start_offset').notNull(),
+  endOffset: integer('end_offset').notNull(),
+  resolution: text('resolution').$type<'linked' | 'unresolved' | 'ambiguous'>().notNull(),
+}, table => [uniqueIndex('resource_mentions_source_version_start_uq').on(table.sourceVersionId, table.startOffset)]);
 export const projectResources = pgTable('project_resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id),
@@ -119,6 +141,10 @@ export const relationEvidence = pgTable('relation_evidence', {
   id: uuid('id').defaultRandom().primaryKey(),
   relationId: uuid('relation_id').notNull().references(() => relations.id),
   resourceId: uuid('resource_id').notNull().references(() => resources.id),
+  resourceVersionId: uuid('resource_version_id').references(() => resourceVersions.id),
+  startOffset: integer('start_offset'),
+  endOffset: integer('end_offset'),
+  pageNumber: integer('page_number'),
   excerpt: text('excerpt'),
   note: text('note'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

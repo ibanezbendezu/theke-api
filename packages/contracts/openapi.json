@@ -1012,7 +1012,7 @@
           {
             "name": "q",
             "in": "query",
-            "description": "Coincidencia parcial por título",
+            "description": "Coincidencia parcial por título, alias, descripción o contenido de nota",
             "schema": {
               "type": "string",
               "maxLength": 160
@@ -1034,6 +1034,11 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": { "type": "string", "maxLength": 80 }
           }
         ],
         "responses": {
@@ -1054,6 +1059,30 @@
             "$ref": "#/components/responses/Unauthorized"
           }
         }
+      }
+    },
+    "/v1/resources/property-definitions": {
+      "get": {
+        "operationId": "listResourcePropertyDefinitions",
+        "security": [{ "bearerAuth": [] }],
+        "responses": { "200": { "description": "Tipos de propiedades definidos en la Cuenta", "content": { "application/json": { "schema": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/ResourcePropertyDefinition" } } } } } } } }
+      }
+    },
+    "/v1/resources/{id}/metadata": {
+      "patch": {
+        "operationId": "updateResourceMetadata",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateResourceMetadataInput" } } } },
+        "responses": { "200": { "description": "Metadatos guardados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceMetadataResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Versión concurrente o tipo incompatible", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } }
+      }
+    },
+    "/v1/resources/{id}/references": {
+      "get": {
+        "operationId": "getResourceReferences",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Enlaces de la versión actual y referencias entrantes actuales", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceReferencesResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } }
       }
     },
     "/v1/resources/{id}": {
@@ -1438,11 +1467,11 @@
       "CreateRelationInput": { "type": "object", "required": ["sourceNodeId", "targetNodeId", "direction", "typeKey", "expectedRevision", "idempotencyKey"], "properties": { "sourceNodeId": { "type": "string" }, "targetNodeId": { "type": "string" }, "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" }, "customTypeName": { "type": "string", "minLength": 2, "maxLength": 60 }, "expectedRevision": { "type": "integer", "minimum": 0 }, "idempotencyKey": { "type": "string", "maxLength": 120 }, "reuseExisting": { "type": "boolean" } } },
       "CreateRelationResult": { "type": "object", "required": ["relationId", "edgeId", "revision", "document", "reused"], "properties": { "relationId": { "type": "string", "format": "uuid" }, "edgeId": { "type": "string", "format": "uuid" }, "revision": { "type": "integer" }, "document": { "$ref": "#/components/schemas/DiagramDocument" }, "reused": { "type": "boolean" } } },
       "CreateRelationResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/CreateRelationResult" } } },
-      "RelationEvidence": { "type": "object", "required": ["id", "resourceId", "title", "excerpt", "note"], "properties": { "id": { "type": "string", "format": "uuid" }, "resourceId": { "type": "string", "format": "uuid" }, "title": { "type": "string" }, "excerpt": { "type": ["string", "null"] }, "note": { "type": ["string", "null"] } } },
+      "RelationEvidence": { "type": "object", "required": ["id", "resourceId", "resourceVersionId", "startOffset", "endOffset", "pageNumber", "title", "excerpt", "note"], "properties": { "id": { "type": "string", "format": "uuid" }, "resourceId": { "type": "string", "format": "uuid" }, "resourceVersionId": { "type": ["string", "null"], "format": "uuid" }, "startOffset": { "type": ["integer", "null"] }, "endOffset": { "type": ["integer", "null"] }, "pageNumber": { "type": ["integer", "null"] }, "title": { "type": "string" }, "excerpt": { "type": ["string", "null"] }, "note": { "type": ["string", "null"] } } },
       "RelationEndpoint": { "type": "object", "required": ["id", "title"], "properties": { "id": { "type": "string", "format": "uuid" }, "title": { "type": "string" } } },
       "RelationDetail": { "type": "object", "required": ["id", "sourceResourceId", "targetResourceId", "direction", "typeKey", "typeLabel", "source", "target", "label", "explanation", "provenance", "evidenceStatus", "evidence", "revision", "archivedAt", "deletedAt", "purgeAfter", "createdByUserId", "updatedByUserId", "createdAt", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": "string", "format": "uuid" }, "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" }, "typeLabel": { "type": "string" }, "source": { "$ref": "#/components/schemas/RelationEndpoint" }, "target": { "$ref": "#/components/schemas/RelationEndpoint" }, "label": { "type": ["string", "null"] }, "explanation": { "type": ["string", "null"] }, "provenance": { "type": ["string", "null"] }, "evidenceStatus": { "type": "string", "enum": ["none", "needs_evidence", "confirmed"] }, "evidence": { "type": "array", "items": { "$ref": "#/components/schemas/RelationEvidence" } }, "revision": { "type": "integer" }, "archivedAt": { "type": ["string", "null"], "format": "date-time" }, "deletedAt": { "type": ["string", "null"], "format": "date-time" }, "purgeAfter": { "type": ["string", "null"], "format": "date-time" }, "createdByUserId": { "type": ["string", "null"], "format": "uuid" }, "updatedByUserId": { "type": ["string", "null"], "format": "uuid" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
       "RelationDetailResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/RelationDetail" } } },
-      "RelationEvidenceInput": { "type": "object", "required": ["resourceId"], "properties": { "resourceId": { "type": "string", "format": "uuid" }, "excerpt": { "type": "string", "maxLength": 2000 }, "note": { "type": "string", "maxLength": 2000 } } },
+      "RelationEvidenceInput": { "type": "object", "required": ["resourceId"], "properties": { "resourceId": { "type": "string", "format": "uuid" }, "resourceVersionId": { "type": "string", "format": "uuid" }, "startOffset": { "type": "integer", "minimum": 0 }, "endOffset": { "type": "integer", "minimum": 1 }, "pageNumber": { "type": "integer", "minimum": 1 }, "excerpt": { "type": "string", "maxLength": 2000 }, "note": { "type": "string", "maxLength": 2000 } } },
       "UpdateRelationInput": { "type": "object", "required": ["label", "explanation", "provenance", "evidenceStatus", "evidence", "expectedRevision"], "properties": { "label": { "type": "string", "maxLength": 160 }, "explanation": { "type": "string", "maxLength": 10000 }, "provenance": { "type": "string", "maxLength": 2000 }, "evidenceStatus": { "type": "string", "enum": ["none", "needs_evidence", "confirmed"] }, "evidence": { "type": "array", "maxItems": 10, "items": { "$ref": "#/components/schemas/RelationEvidenceInput" } }, "expectedRevision": { "type": "integer", "minimum": 0 } } },
       "ProjectInput": {
         "type": "object",
@@ -2053,6 +2082,10 @@
           "status",
           "archivedAt",
           "updatedAt",
+          "aliases",
+          "tags",
+          "properties",
+          "versionId",
           "accessibilityRequired",
           "accessibilityMissing"
         ],
@@ -2070,6 +2103,10 @@
               "null"
             ]
           },
+          "aliases": { "type": "array", "items": { "type": "string" } },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "properties": { "type": "object", "additionalProperties": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] } },
+          "versionId": { "type": ["string", "null"], "format": "uuid" },
           "type": {
             "type": "string",
             "enum": [
@@ -2151,6 +2188,12 @@
           "description": { "type": ["string", "null"], "maxLength": 1000 }
         }
       },
+      "ResourcePropertyDefinition": { "type": "object", "required": ["key", "type"], "properties": { "key": { "type": "string" }, "type": { "type": "string", "enum": ["text", "list", "number", "checkbox", "date", "datetime"] } } },
+      "ResourcePropertyInput": { "type": "object", "required": ["key", "type", "value"], "properties": { "key": { "type": "string", "maxLength": 40 }, "type": { "type": "string", "enum": ["text", "list", "number", "checkbox", "date", "datetime"] }, "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] } } },
+      "UpdateResourceMetadataInput": { "type": "object", "required": ["aliases", "tags", "properties", "expectedUpdatedAt"], "properties": { "aliases": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 80 } }, "tags": { "type": "array", "maxItems": 30, "items": { "type": "string", "maxLength": 80 } }, "properties": { "type": "array", "maxItems": 30, "items": { "$ref": "#/components/schemas/ResourcePropertyInput" } }, "expectedUpdatedAt": { "type": "string", "format": "date-time" } } },
+      "ResourceMetadataResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["id", "aliases", "tags", "properties", "updatedAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "aliases": { "type": "array", "items": { "type": "string" } }, "tags": { "type": "array", "items": { "type": "string" } }, "properties": { "type": "object", "additionalProperties": true }, "updatedAt": { "type": "string", "format": "date-time" } } } } },
+      "ResourceMention": { "type": "object", "required": ["id", "sourceResourceId", "sourceVersionId", "targetResourceId", "rawTarget", "displayText", "anchor", "startOffset", "endOffset", "resolution"], "properties": { "id": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "sourceVersionId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": ["string", "null"], "format": "uuid" }, "rawTarget": { "type": "string" }, "displayText": { "type": ["string", "null"] }, "anchor": { "type": ["string", "null"] }, "startOffset": { "type": "integer" }, "endOffset": { "type": "integer" }, "resolution": { "type": "string", "enum": ["linked", "unresolved", "ambiguous"] }, "targetTitle": { "type": ["string", "null"] }, "sourceTitle": { "type": "string" } } },
+      "ResourceReferencesResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["outgoing", "incoming"], "properties": { "outgoing": { "type": "array", "items": { "$ref": "#/components/schemas/ResourceMention" } }, "incoming": { "type": "array", "items": { "$ref": "#/components/schemas/ResourceMention" } } } } } },
       "ResourceResponse": {
         "type": "object",
         "required": [

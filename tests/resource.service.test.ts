@@ -6,11 +6,12 @@ import { AccountService } from '../src/modules/account/account.service.js';
 import { ResourceRepository } from '../src/modules/resources/resource.repository.js';
 import { ResourceService } from '../src/modules/resources/resource.service.js';
 import { NoteService } from '../src/modules/resources/note.service.js';
+import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 import type { UploadStorage } from '../src/modules/uploads/upload.ports.js';
 
 const integration = describe.runIf(Boolean(process.env.DATABASE_URL));
 integration('consulta de recursos con PostgreSQL', () => {
-  const database = new Database(); const accountsService = new AccountService(database); const notes = new NoteService(database); const repository = new ResourceRepository(database);
+  const database = new Database(); const accountsService = new AccountService(database); const notes = new NoteService(database, new ResourceKnowledgeRepository(database)); const repository = new ResourceRepository(database);
   const storage: UploadStorage = { presignGet: vi.fn(async () => 'https://storage.test/signed'), presignPut: vi.fn(), head: vi.fn(), copy: vi.fn(), read: vi.fn(), remove: vi.fn() };
   const service = new ResourceService(repository, storage); const clerkIds = [`resource_owner_1_${crypto.randomUUID()}`, `resource_owner_2_${crypto.randomUUID()}`];
   afterAll(async () => { const createdUsers = await database.db.select({ id: users.id }).from(users).where(inArray(users.clerkUserId, clerkIds)); const userIds = createdUsers.map(value => value.id); if (userIds.length) { const createdAccounts = await database.db.select({ id: accounts.id }).from(accounts).where(inArray(accounts.personalOwnerUserId, userIds)); const accountIds = createdAccounts.map(value => value.id); if (accountIds.length) { const owned = await database.db.select({ id: resources.id }).from(resources).where(inArray(resources.accountId, accountIds)); const ids = owned.map(value => value.id); if (ids.length) { await database.db.delete(resourceAccessibility).where(inArray(resourceAccessibility.resourceId, ids)); await database.db.update(resources).set({ currentVersionId: null }).where(inArray(resources.id, ids)); await database.db.delete(resourceVersions).where(inArray(resourceVersions.resourceId, ids)); await database.db.delete(resources).where(inArray(resources.id, ids)); } } await database.db.delete(memberships).where(inArray(memberships.userId, userIds)); await database.db.delete(accounts).where(inArray(accounts.personalOwnerUserId, userIds)); await database.db.delete(users).where(inArray(users.id, userIds)); } await database.onModuleDestroy(); }, 30_000);

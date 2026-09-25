@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramRevisions, diagrams, projects, relationEvidence, relationTypes, relations, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, projects, relationEvidence, relationTypes, relations, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 
 export const commonRelationTypes = [
   { key: 'supports', label: 'Respalda' },
@@ -125,7 +125,7 @@ export class RelationService {
     if (!relation) throw new NotFoundException('Relación no encontrada.');
     const endpoints = await this.database.db.select({ id: resources.id, title: resources.title }).from(resources).where(and(eq(resources.accountId, accountId), inArray(resources.id, [relation.sourceResourceId, relation.targetResourceId])));
     const type = relation.typeKey.startsWith('custom:') ? await this.database.db.select({ label: relationTypes.label }).from(relationTypes).where(and(eq(relationTypes.id, relation.typeKey.slice(7)), eq(relationTypes.accountId, accountId))).limit(1) : [];
-    const evidence = await this.database.db.select({ id: relationEvidence.id, resourceId: relationEvidence.resourceId, title: resources.title, excerpt: relationEvidence.excerpt, note: relationEvidence.note }).from(relationEvidence).innerJoin(resources, eq(resources.id, relationEvidence.resourceId)).where(eq(relationEvidence.relationId, id));
+    const evidence = await this.database.db.select({ id: relationEvidence.id, resourceId: relationEvidence.resourceId, resourceVersionId: relationEvidence.resourceVersionId, startOffset: relationEvidence.startOffset, endOffset: relationEvidence.endOffset, pageNumber: relationEvidence.pageNumber, title: resources.title, excerpt: relationEvidence.excerpt, note: relationEvidence.note }).from(relationEvidence).innerJoin(resources, eq(resources.id, relationEvidence.resourceId)).where(eq(relationEvidence.relationId, id));
     return { ...relation, typeLabel: type[0]?.label ?? commonRelationTypes.find(item => item.key === relation.typeKey)?.label ?? relation.typeKey, source: endpoints.find(item => item.id === relation.sourceResourceId)!, target: endpoints.find(item => item.id === relation.targetResourceId)!, evidence };
   }
 
@@ -143,9 +143,12 @@ export class RelationService {
     if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) throw new BadRequestException('Revisión esperada inválida.');
     if (!Array.isArray(input.evidence) || input.evidence.length > 10) throw new BadRequestException('La Relación admite hasta 10 citas.');
     const evidence = input.evidence.map((item: unknown) => {
-      const value = item as { resourceId?: unknown; excerpt?: unknown; note?: unknown };
+      const value = item as { resourceId?: unknown; resourceVersionId?: unknown; startOffset?: unknown; endOffset?: unknown; pageNumber?: unknown; excerpt?: unknown; note?: unknown };
       if (!value || typeof value !== 'object' || typeof value.resourceId !== 'string' || !uuid.test(value.resourceId)) throw new BadRequestException('Referencia de evidencia inválida.');
-      return { resourceId: value.resourceId, excerpt: optionalText(value.excerpt, 'Fragmento', 2_000), note: optionalText(value.note, 'Nota de evidencia', 2_000) };
+      if (value.resourceVersionId != null && (typeof value.resourceVersionId !== 'string' || !uuid.test(value.resourceVersionId))) throw new BadRequestException('Versión de evidencia inválida.');
+      if ((value.startOffset != null || value.endOffset != null) && (!Number.isSafeInteger(value.startOffset) || !Number.isSafeInteger(value.endOffset) || (value.startOffset as number) < 0 || (value.endOffset as number) <= (value.startOffset as number))) throw new BadRequestException('Posición de evidencia inválida.');
+      if (value.pageNumber != null && (!Number.isSafeInteger(value.pageNumber) || (value.pageNumber as number) < 1)) throw new BadRequestException('Página de evidencia inválida.');
+      return { resourceId: value.resourceId, resourceVersionId: value.resourceVersionId as string | undefined, startOffset: value.startOffset as number | undefined, endOffset: value.endOffset as number | undefined, pageNumber: value.pageNumber as number | undefined, excerpt: optionalText(value.excerpt, 'Fragmento', 2_000), note: optionalText(value.note, 'Nota de evidencia', 2_000) };
     });
     if (input.evidenceStatus === 'confirmed' && evidence.length === 0) throw new BadRequestException('Añade una cita antes de marcar la evidencia como confirmada.');
     if (input.evidenceStatus === 'none' && evidence.length > 0) throw new BadRequestException('Elige un estado de evidencia para las citas.');
@@ -156,12 +159,28 @@ export class RelationService {
       if (current.revision !== input.expectedRevision) throw new ConflictException({ message: 'La Relación cambió en otra sesión.', details: { currentRevision: current.revision } });
       const evidenceIds = [...new Set(evidence.map(item => item.resourceId))];
       if (evidenceIds.length) {
-        const owned = await tx.select({ id: resources.id }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, evidenceIds))).for('share');
+        const owned = await tx.select({ id: resources.id, currentVersionId: resources.currentVersionId, type: resources.type }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, evidenceIds))).for('share');
         if (owned.length !== evidenceIds.length) throw new NotFoundException('Recurso de evidencia no encontrado en esta Cuenta.');
+        const selectedVersionIds = [...new Set(evidence.map(item => item.resourceVersionId ?? owned.find(resource => resource.id === item.resourceId)?.currentVersionId).filter((value): value is string => Boolean(value)))];
+        const versions = await tx.select({ id: resourceVersions.id, resourceId: resourceVersions.resourceId, content: resourceVersions.content }).from(resourceVersions).where(inArray(resourceVersions.id, selectedVersionIds));
+        const byVersion = new Map(versions.map(version => [version.id, version]));
+        for (const item of evidence) {
+          const resource = owned.find(value => value.id === item.resourceId)!;
+          const versionId = item.resourceVersionId ?? resource.currentVersionId;
+          const version = versionId ? byVersion.get(versionId) : undefined;
+          if (!version || version.resourceId !== item.resourceId) throw new BadRequestException('La versión citada no pertenece al Recurso de evidencia.');
+          item.resourceVersionId = versionId!;
+          if (item.startOffset != null && item.endOffset != null) {
+            if (!item.excerpt || version.content.slice(item.startOffset, item.endOffset) !== item.excerpt) throw new BadRequestException('El fragmento no coincide con la versión citada.');
+          } else if (item.excerpt && resource.type === 'note') {
+            const first = version.content.indexOf(item.excerpt);
+            if (first >= 0 && version.content.indexOf(item.excerpt, first + 1) < 0) { item.startOffset = first; item.endOffset = first + item.excerpt.length; }
+          }
+        }
       }
       await tx.update(relations).set({ label, explanation, provenance, evidenceStatus: input.evidenceStatus as 'none' | 'needs_evidence' | 'confirmed', revision: current.revision + 1, updatedByUserId: authorUserId, updatedAt: new Date() }).where(eq(relations.id, id));
       await tx.delete(relationEvidence).where(eq(relationEvidence.relationId, id));
-      if (evidence.length) await tx.insert(relationEvidence).values(evidence.map(item => ({ relationId: id, ...item })));
+      if (evidence.length) await tx.insert(relationEvidence).values(evidence.map(item => ({ relationId: id, resourceId: item.resourceId, resourceVersionId: item.resourceVersionId, startOffset: item.startOffset, endOffset: item.endOffset, pageNumber: item.pageNumber, excerpt: item.excerpt, note: item.note })));
     }, { isolationLevel: 'serializable' }));
     return this.get(accountId, id);
   }

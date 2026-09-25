@@ -22,6 +22,8 @@ import { MALWARE_SCANNER, UPLOAD_STORAGE } from './modules/uploads/upload.ports.
 import { ResourcesController } from './interfaces/http/resources.controller.js';
 import { ResourceService } from './modules/resources/resource.service.js';
 import { ResourceRepository } from './modules/resources/resource.repository.js';
+import { ResourceKnowledgeRepository } from './modules/resources/resource-knowledge.repository.js';
+import { ResourceKnowledgeService } from './modules/resources/resource-knowledge.service.js';
 import { LinksController } from './interfaces/http/links.controller.js';
 import { LinkService } from './modules/resources/link.service.js';
 import { LinkRepository } from './modules/resources/link.repository.js';
@@ -33,4 +35,4 @@ import { DiagramsController } from './interfaces/http/diagrams.controller.js';
 import { DiagramService } from './modules/diagrams/diagram.service.js';
 import { RelationsController } from './interfaces/http/relations.controller.js';
 import { RelationService } from './modules/relations/relation.service.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController, LinksController, ImpactsController, DiagramsController, RelationsController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, DiagramService, RelationService, NoteService, ResourceService, ResourceRepository, LinkService, LinkRepository, LinkProcessor, LinkMetadataFetcher, ImpactService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController, LinksController, ImpactsController, DiagramsController, RelationsController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, DiagramService, RelationService, NoteService, ResourceService, ResourceRepository, ResourceKnowledgeRepository, ResourceKnowledgeService, LinkService, LinkRepository, LinkProcessor, LinkMetadataFetcher, ImpactService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}

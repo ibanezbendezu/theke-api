@@ -6,6 +6,7 @@ import { AccountService } from '../src/modules/account/account.service.js';
 import { OrganizationService } from '../src/modules/projects/organization.service.js';
 import { ProjectService } from '../src/modules/projects/project.service.js';
 import { NoteService } from '../src/modules/resources/note.service.js';
+import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 
 const integration = describe.runIf(Boolean(process.env.DATABASE_URL));
 integration('organización de proyectos con PostgreSQL', () => {
@@ -13,7 +14,7 @@ integration('organización de proyectos con PostgreSQL', () => {
   const accountsService = new AccountService(database);
   const organization = new OrganizationService(database);
   const projectService = new ProjectService(database);
-  const noteService = new NoteService(database);
+  const noteService = new NoteService(database, new ResourceKnowledgeRepository(database));
   const clerkIds = [`organization_owner_1_${crypto.randomUUID()}`, `organization_owner_2_${crypto.randomUUID()}`];
 
   afterAll(async () => {

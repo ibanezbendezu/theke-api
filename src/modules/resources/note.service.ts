@@ -3,6 +3,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { and, desc, eq, isNull, lt, or } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { ResourceKnowledgeRepository } from './resource-knowledge.repository.js';
 
 export interface NoteInput { title?: unknown; description?: unknown; content?: unknown }
 const hash = (content: string) => createHash('sha256').update(content).digest('hex');
@@ -21,7 +22,7 @@ function cursor(value?: string): [Date, string] | undefined {
 
 @Injectable()
 export class NoteService {
-  constructor(@Inject(Database) private readonly database: Database) {}
+  constructor(@Inject(Database) private readonly database: Database, @Inject(ResourceKnowledgeRepository) private readonly knowledge: ResourceKnowledgeRepository) {}
 
   async list(accountId: string, cursorValue?: string) {
     const page = cursor(cursorValue);
@@ -38,6 +39,7 @@ export class NoteService {
       const [resource] = await tx.insert(resources).values({ accountId, authorUserId, type: 'note', title: note.title, description: note.description, creationMethod: 'manual' }).returning();
       const [version] = await tx.insert(resourceVersions).values({ resourceId: resource!.id, authorUserId, ordinal: 1, content: note.content, contentHash: hash(note.content) }).returning();
       const [saved] = await tx.update(resources).set({ currentVersionId: version!.id }).where(eq(resources.id, resource!.id)).returning();
+      await this.knowledge.indexNoteMentions(tx, accountId, resource!.id, version!.id, note.content);
       return { ...saved!, currentVersion: version!, contentUnchanged: false };
     });
   }
@@ -60,6 +62,7 @@ export class NoteService {
       if (!contentUnchanged) {
         const [inserted] = await tx.insert(resourceVersions).values({ resourceId: id, authorUserId, ordinal: current!.ordinal + 1, content: note.content, contentHash: hash(note.content) }).returning();
         version = inserted!;
+        await this.knowledge.indexNoteMentions(tx, accountId, id, version.id, note.content, current!.id);
       }
       const [saved] = await tx.update(resources).set({ title: note.title, description: note.description, currentVersionId: version!.id, updatedAt: new Date() }).where(eq(resources.id, id)).returning();
       return { ...saved!, currentVersion: version!, contentUnchanged };

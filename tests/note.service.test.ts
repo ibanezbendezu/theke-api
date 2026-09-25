@@ -4,10 +4,11 @@ import { Database } from '../src/infrastructure/database/database.js';
 import { accounts, memberships, resources, resourceVersions, users } from '../src/infrastructure/database/schema.js';
 import { AccountService } from '../src/modules/account/account.service.js';
 import { NoteService } from '../src/modules/resources/note.service.js';
+import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 
 const integration = describe.runIf(Boolean(process.env.DATABASE_URL));
 integration('notes con PostgreSQL', () => {
-  const database = new Database(); const accountsService = new AccountService(database); const notes = new NoteService(database);
+  const database = new Database(); const accountsService = new AccountService(database); const notes = new NoteService(database, new ResourceKnowledgeRepository(database));
   const clerkIds = [`note_owner_1_${crypto.randomUUID()}`, `note_owner_2_${crypto.randomUUID()}`];
   afterAll(async () => {
     const created = await database.db.select({ id: users.id }).from(users).where(inArray(users.clerkUserId, clerkIds)); const userIds = created.map(item => item.id);

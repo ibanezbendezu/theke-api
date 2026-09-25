@@ -5,6 +5,7 @@ import { accounts, diagramRevisions, diagrams, memberships, operationReceipts, p
 import { AccountService } from '../src/modules/account/account.service.js';
 import { ProjectService } from '../src/modules/projects/project.service.js';
 import { NoteService } from '../src/modules/resources/note.service.js';
+import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 import { DiagramService } from '../src/modules/diagrams/diagram.service.js';
 import { RelationService } from '../src/modules/relations/relation.service.js';
 import { ImpactService } from '../src/modules/lifecycle/impact.service.js';
@@ -13,7 +14,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
   const database = new Database();
   const accountsService = new AccountService(database);
   const projectsService = new ProjectService(database);
-  const notes = new NoteService(database);
+  const notes = new NoteService(database, new ResourceKnowledgeRepository(database));
   const diagramService = new DiagramService(database);
   const service = new RelationService(database);
   const impacts = new ImpactService(database);
@@ -35,7 +36,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     const project = await projectsService.create(accountId, 'Relaciones'); projectIds.push(project.id);
     const another = await projectsService.create(accountId, 'Otro proyecto'); projectIds.push(another.id);
     const first = await notes.create(accountId, userId, { title: 'Origen', content: '' }); resourceIds.push(first.id);
-    const second = await notes.create(accountId, userId, { title: 'Destino', content: '' }); resourceIds.push(second.id);
+    const second = await notes.create(accountId, userId, { title: 'Destino', content: 'Dato relevante' }); resourceIds.push(second.id);
     const diagram = await diagramService.create(accountId, project.id, 'Mapa'); diagramIds.push(diagram.id);
     const document = { schemaVersion: 1, nodes: [{ id: 'n1', type: 'resource', position: { x: 0, y: 0 }, data: { resourceId: first.id } }, { id: 'n2', type: 'resource', position: { x: 100, y: 0 }, data: { resourceId: second.id } }, { id: 'visual', type: 'annotation', position: { x: 0, y: 100 }, data: { text: 'Nota' } }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
     await diagramService.save(accountId, diagram.id, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
@@ -61,7 +62,8 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     expect(needs.revision).toBe(1); expect(needs.evidenceStatus).toBe('needs_evidence'); expect(needs.updatedByUserId).toBe(userId);
     await expect(service.update(accountId, userId, result.relationId, { label: 'Otra', explanation: '', provenance: '', evidenceStatus: 'none', evidence: [], expectedRevision: 0 })).rejects.toThrow('otra sesión');
     const cited = await service.update(accountId, userId, result.relationId, { label: 'Apoya la hipótesis', explanation: 'La nota incluye el dato', provenance: 'Lectura manual', evidenceStatus: 'confirmed', evidence: [{ resourceId: second.id, excerpt: 'Dato relevante', note: 'Página 2' }], expectedRevision: 1 });
-    expect(cited.revision).toBe(2); expect(cited.evidence[0]).toMatchObject({ resourceId: second.id, excerpt: 'Dato relevante', note: 'Página 2' });
+    expect(cited.revision).toBe(2); expect(cited.evidence[0]).toMatchObject({ resourceId: second.id, resourceVersionId: second.currentVersion.id, startOffset: 0, endOffset: 14, excerpt: 'Dato relevante', note: 'Página 2' });
+    await expect(service.update(accountId, userId, result.relationId, { label: '', explanation: '', provenance: '', evidenceStatus: 'confirmed', evidence: [{ resourceId: second.id, resourceVersionId: second.currentVersion.id, startOffset: 0, endOffset: 4, excerpt: 'Otro' }], expectedRevision: 2 })).rejects.toThrow('no coincide');
     const foreignIdentity = await accountsService.ensureLocalUser({ clerkUserId: `foreign_relation_${crypto.randomUUID()}` }); foreignUserId = foreignIdentity.user.id; foreignAccountId = foreignIdentity.account.id;
     const foreign = await notes.create(foreignAccountId, foreignUserId, { title: 'Ajeno', content: '' }); resourceIds.push(foreign.id);
     await expect(service.update(accountId, userId, result.relationId, { label: '', explanation: '', provenance: '', evidenceStatus: 'confirmed', evidence: [{ resourceId: foreign.id }], expectedRevision: 2 })).rejects.toThrow('no encontrado en esta Cuenta');
