@@ -27,6 +27,22 @@ function optionalText(value: unknown, name: string, max: number) {
 export class RelationService {
   constructor(@Inject(Database) private readonly database: Database) {}
 
+  async available(accountId: string, diagramId: string) {
+    const [diagram] = await this.database.db.select({ document: diagrams.document }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, diagramId), isNull(diagrams.deletedAt))).limit(1);
+    if (!diagram) throw new NotFoundException('Diagrama no encontrado.');
+    const nodes = (diagram.document.nodes as CanvasNode[]).filter(node => node.type === 'resource' && typeof node.id === 'string' && typeof node.data?.resourceId === 'string');
+    const resourceIds = [...new Set(nodes.map(node => node.data!.resourceId as string))];
+    if (resourceIds.length < 2) return [];
+    const shown = new Set((diagram.document.edges as CanvasEdge[]).map(edge => edge.data?.relationId).filter((id): id is string => typeof id === 'string'));
+    const candidates = await this.database.db.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction, typeKey: relations.typeKey, label: relations.label, evidenceStatus: relations.evidenceStatus, sourceTitle: resources.title }).from(relations).innerJoin(resources, eq(resources.id, relations.sourceResourceId)).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.sourceResourceId, resourceIds), inArray(relations.targetResourceId, resourceIds)));
+    const targetTitles = await this.database.db.select({ id: resources.id, title: resources.title }).from(resources).where(inArray(resources.id, resourceIds));
+    const titleById = new Map(targetTitles.map(item => [item.id, item.title]));
+    const customIds = candidates.map(item => item.typeKey.startsWith('custom:') ? item.typeKey.slice(7) : null).filter((id): id is string => Boolean(id));
+    const customTypes = customIds.length ? await this.database.db.select({ id: relationTypes.id, label: relationTypes.label }).from(relationTypes).where(and(eq(relationTypes.accountId, accountId), inArray(relationTypes.id, customIds))) : [];
+    const typeById = new Map(customTypes.map(item => [item.id, item.label]));
+    return candidates.filter(item => !shown.has(item.id)).map(item => ({ relationId: item.id, sourceResourceId: item.sourceResourceId, targetResourceId: item.targetResourceId, sourceNodeId: nodes.find(node => node.data?.resourceId === item.sourceResourceId)!.id as string, targetNodeId: nodes.find(node => node.data?.resourceId === item.targetResourceId)!.id as string, sourceTitle: item.sourceTitle, targetTitle: titleById.get(item.targetResourceId) ?? 'Recurso', direction: item.direction, typeKey: item.typeKey, typeLabel: item.typeKey.startsWith('custom:') ? typeById.get(item.typeKey.slice(7)) ?? item.typeKey : commonRelationTypes.find(type => type.key === item.typeKey)?.label ?? item.typeKey, label: item.label, evidenceStatus: item.evidenceStatus }));
+  }
+
   async types(accountId: string, projectId: string) {
     const [project] = await this.database.db.select({ id: projects.id }).from(projects).where(and(eq(projects.id, projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).limit(1);
     if (!project) throw new NotFoundException('Proyecto no encontrado.');
@@ -86,8 +102,9 @@ export class RelationService {
       }
       const [from, to] = direction === 'undirected' && sourceResourceId > targetResourceId ? [targetResourceId, sourceResourceId] : [sourceResourceId, targetResourceId];
       const [createdRelation] = await tx.insert(relations).values({ accountId, sourceResourceId: from, targetResourceId: to, direction, typeKey, createdByUserId: authorUserId, updatedByUserId: authorUserId }).onConflictDoNothing().returning({ id: relations.id });
-      const [relation] = createdRelation ? [createdRelation] : await tx.select({ id: relations.id }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.sourceResourceId, from), eq(relations.targetResourceId, to), eq(relations.direction, direction), eq(relations.typeKey, typeKey))).limit(1);
+      const [relation] = createdRelation ? [createdRelation] : await tx.select({ id: relations.id, archivedAt: relations.archivedAt, deletedAt: relations.deletedAt }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.sourceResourceId, from), eq(relations.targetResourceId, to), eq(relations.direction, direction), eq(relations.typeKey, typeKey))).limit(1);
       if (!relation) throw new ConflictException('No se pudo recuperar la Relación.');
+      if ('archivedAt' in relation && (relation.archivedAt || relation.deletedAt)) throw new ConflictException('La Relación equivalente está archivada. Restáurala antes de mostrarla.');
       if (!createdRelation && input.reuseExisting !== true) throw new ConflictException({ message: 'Ya existe una Relación equivalente. Puedes mostrarla en este Diagrama.', details: { relationId: relation.id } });
       const edges = current.document.edges as CanvasEdge[];
       const alreadyShown = edges.find(item => item.data?.relationId === relation.id && item.source === sourceNodeId && item.target === targetNodeId);
@@ -112,6 +129,12 @@ export class RelationService {
     return { ...relation, typeLabel: type[0]?.label ?? commonRelationTypes.find(item => item.key === relation.typeKey)?.label ?? relation.typeKey, source: endpoints.find(item => item.id === relation.sourceResourceId)!, target: endpoints.find(item => item.id === relation.targetResourceId)!, evidence };
   }
 
+  async restore(accountId: string, id: string) {
+    const [relation] = await this.database.db.update(relations).set({ archivedAt: null, deletedAt: null, purgeAfter: null, updatedAt: new Date() }).where(and(eq(relations.id, id), eq(relations.accountId, accountId))).returning({ id: relations.id });
+    if (!relation) throw new NotFoundException('Relación no encontrada.');
+    return this.get(accountId, id);
+  }
+
   async update(accountId: string, authorUserId: string, id: string, input: EditInput) {
     const label = optionalText(input.label, 'Etiqueta', 160);
     const explanation = optionalText(input.explanation, 'Explicación', 10_000);
@@ -128,7 +151,8 @@ export class RelationService {
     if (input.evidenceStatus === 'none' && evidence.length > 0) throw new BadRequestException('Elige un estado de evidencia para las citas.');
     await withSerializationRetry(() => this.database.db.transaction(async tx => {
       const [current] = await tx.select().from(relations).where(and(eq(relations.id, id), eq(relations.accountId, accountId))).for('update').limit(1);
-      if (!current) throw new NotFoundException('Relación no encontrada.');
+      if (!current || current.deletedAt) throw new NotFoundException('Relación no encontrada.');
+      if (current.archivedAt) throw new ConflictException('Restaura la Relación para editarla.');
       if (current.revision !== input.expectedRevision) throw new ConflictException({ message: 'La Relación cambió en otra sesión.', details: { currentRevision: current.revision } });
       const evidenceIds = [...new Set(evidence.map(item => item.resourceId))];
       if (evidenceIds.length) {

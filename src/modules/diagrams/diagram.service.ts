@@ -51,7 +51,7 @@ export class DiagramService {
       const relationIds = [...new Set(relationEdges.map(edge => edge.data.relationId))];
       if (relationIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de Relación inválida.');
       if (relationIds.length) {
-        const ownedRelations = await tx.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction }).from(relations).where(and(eq(relations.accountId, accountId), inArray(relations.id, relationIds))).for('share');
+        const ownedRelations = await tx.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction }).from(relations).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), inArray(relations.id, relationIds))).for('share');
         if (ownedRelations.length !== relationIds.length) throw new NotFoundException('Relación del Canvas no encontrada.');
         const relationById = new Map(ownedRelations.map(relation => [relation.id, relation]));
         const nodeById = new Map(document.nodes.map(node => [(node as { id: string }).id, node as { type?: string; data?: { resourceId?: unknown } }]));

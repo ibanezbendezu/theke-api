@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 function serializationFailure(error: unknown): boolean {
   let current = error;
   for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
-    if ('code' in current && current.code === '40001') return true;
+    if ('code' in current && (current.code === '40001' || current.code === '40P01')) return true;
     current = 'cause' in current ? current.cause : null;
   }
   return false;

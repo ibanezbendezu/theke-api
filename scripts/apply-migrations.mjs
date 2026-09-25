@@ -16,11 +16,14 @@ const migrations = [
   ['diagram_revisions', '../drizzle/0011_diagram_revisions.sql'],
   ['relation_types', '../drizzle/0012_relations.sql'],
   ['relation_evidence', '../drizzle/0013_relation_details.sql'],
+  ['relations.archived_at', '../drizzle/0014_relation_lifecycle.sql'],
 ];
 try {
   for (const [table, path] of migrations) {
-    const existing = await pool.query('select to_regclass($1) as relation', [`public.${table}`]);
-    if (existing.rows[0].relation) continue;
+    const existing = table.includes('.')
+      ? await pool.query('select 1 as relation from information_schema.columns where table_schema = $1 and table_name = $2 and column_name = $3', ['public', ...table.split('.')])
+      : await pool.query('select to_regclass($1) as relation', [`public.${table}`]);
+    if (table.includes('.') ? existing.rowCount : existing.rows[0].relation) continue;
     await pool.query(await readFile(new URL(path, import.meta.url), 'utf8'));
     console.log(`Migración aplicada: ${table}`);
   }
