@@ -87,6 +87,23 @@ export const projectResources = pgTable('project_resources', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [uniqueIndex('project_resources_project_resource_uq').on(table.projectId, table.resourceId)]);
+export const relationTypes = pgTable('relation_types', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  originProjectId: uuid('origin_project_id').notNull().references(() => projects.id),
+  label: text('label').notNull(),
+  labelKey: text('label_key').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('relation_types_project_label_uq').on(table.originProjectId, table.labelKey)]);
+export const relations = pgTable('relations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  sourceResourceId: uuid('source_resource_id').notNull().references(() => resources.id),
+  targetResourceId: uuid('target_resource_id').notNull().references(() => resources.id),
+  direction: text('direction').$type<'directed' | 'undirected'>().notNull(),
+  typeKey: text('type_key').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('relations_equivalent_uq').on(table.accountId, table.sourceResourceId, table.targetResourceId, table.direction, table.typeKey)]);
 export const uploads = pgTable('uploads', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

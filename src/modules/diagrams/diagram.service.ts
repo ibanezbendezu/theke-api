@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramRevisions, diagrams, folders, projects, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, folders, projects, relations, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, background: { variant: 'dots' as const, tone: 'default' as const } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
@@ -46,6 +46,26 @@ export class DiagramService {
       const folderIds = [...new Set(folderNodes.map(node => node.folderId))];
       if (folderNodes.some(node => typeof node.folderId !== 'string' || typeof node.projectId !== 'string' || node.projectId !== current.projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.folderId))) throw new BadRequestException('Referencia de carpeta inválida.');
       if (folderIds.length) { const owned = await tx.select({ id: folders.id }).from(folders).where(and(eq(folders.projectId, current.projectId), inArray(folders.id, folderIds as string[]))).for('share'); if (owned.length !== folderIds.length) throw new NotFoundException('Carpeta del Canvas no encontrada.'); }
+      if (document.edges.some(edge => { const relationId = (edge as { data?: { relationId?: unknown } }).data?.relationId; return relationId !== undefined && typeof relationId !== 'string'; })) throw new BadRequestException('Referencia de Relación inválida.');
+      const relationEdges = document.edges.filter(edge => typeof (edge as { data?: { relationId?: unknown } }).data?.relationId === 'string') as { source: string; target: string; data: { relationId: string } }[];
+      const relationIds = [...new Set(relationEdges.map(edge => edge.data.relationId))];
+      if (relationIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de Relación inválida.');
+      if (relationIds.length) {
+        const ownedRelations = await tx.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction }).from(relations).where(and(eq(relations.accountId, accountId), inArray(relations.id, relationIds))).for('share');
+        if (ownedRelations.length !== relationIds.length) throw new NotFoundException('Relación del Canvas no encontrada.');
+        const relationById = new Map(ownedRelations.map(relation => [relation.id, relation]));
+        const nodeById = new Map(document.nodes.map(node => [(node as { id: string }).id, node as { type?: string; data?: { resourceId?: unknown } }]));
+        for (const edge of relationEdges) {
+          const relation = relationById.get(edge.data.relationId)!;
+          const source = nodeById.get(edge.source);
+          const target = nodeById.get(edge.target);
+          const sourceResourceId = source?.type === 'resource' ? source.data?.resourceId : undefined;
+          const targetResourceId = target?.type === 'resource' ? target.data?.resourceId : undefined;
+          const matches = sourceResourceId === relation.sourceResourceId && targetResourceId === relation.targetResourceId ||
+            relation.direction === 'undirected' && sourceResourceId === relation.targetResourceId && targetResourceId === relation.sourceResourceId;
+          if (!matches) throw new BadRequestException('Los extremos visuales no corresponden a la Relación.');
+        }
+      }
       const revision = current.revision + 1; const updatedAt = new Date();
       await tx.update(diagrams).set({ document, revision, updatedAt }).where(eq(diagrams.id, id));
       await tx.insert(diagramRevisions).values({ diagramId: id, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
