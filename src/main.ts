@@ -10,7 +10,7 @@ import { parseEnvironmentList, validateEnvironment } from './config/environment.
 validateEnvironment();
 const adapter = new FastifyAdapter({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie'] }, genReqId: (request: IncomingMessage) => String(request.headers['x-request-id'] ?? crypto.randomUUID()) });
 const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { rawBody: true });
-await app.register(cors, { origin: parseEnvironmentList('WEB_ORIGINS'), methods: ['GET', 'POST', 'PATCH', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'] });
+await app.register(cors, { origin: parseEnvironmentList('WEB_ORIGINS'), methods: ['GET', 'POST', 'PATCH', 'PUT', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'] });
 app.getHttpAdapter().getInstance().addHook('onRequest', (request, reply, done) => {
   reply.header('x-request-id', request.id);
   done();
