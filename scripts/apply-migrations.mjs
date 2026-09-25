@@ -15,6 +15,7 @@ const migrations = [
   ['diagrams', '../drizzle/0010_diagrams.sql'],
   ['diagram_revisions', '../drizzle/0011_diagram_revisions.sql'],
   ['relation_types', '../drizzle/0012_relations.sql'],
+  ['relation_evidence', '../drizzle/0013_relation_details.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

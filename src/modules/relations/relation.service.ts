@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, NotFoundExc
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramRevisions, diagrams, projects, relationTypes, relations, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, projects, relationEvidence, relationTypes, relations, resources } from '../../infrastructure/database/schema.js';
 
 export const commonRelationTypes = [
   { key: 'supports', label: 'Respalda' },
@@ -15,7 +15,13 @@ type Document = typeof diagrams.$inferSelect.document;
 type CanvasNode = { id?: unknown; type?: unknown; data?: { resourceId?: unknown } };
 type CanvasEdge = { id?: unknown; source?: unknown; target?: unknown; data?: { relationId?: unknown; operationId?: unknown } };
 type CreateInput = { sourceNodeId?: unknown; targetNodeId?: unknown; direction?: unknown; typeKey?: unknown; customTypeName?: unknown; expectedRevision?: unknown; idempotencyKey?: unknown; reuseExisting?: unknown };
+type EditInput = { label?: unknown; explanation?: unknown; provenance?: unknown; evidenceStatus?: unknown; evidence?: unknown; expectedRevision?: unknown };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function optionalText(value: unknown, name: string, max: number) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' || value.trim().length > max) throw new BadRequestException(`${name} inválida o demasiado larga.`);
+  return value.trim() || null;
+}
 
 @Injectable()
 export class RelationService {
@@ -28,7 +34,7 @@ export class RelationService {
     return [...commonRelationTypes, ...custom.map(item => ({ key: `custom:${item.id}`, label: item.label }))];
   }
 
-  async create(accountId: string, diagramId: string, input: CreateInput) {
+  async create(accountId: string, authorUserId: string, diagramId: string, input: CreateInput) {
     const sourceNodeId = typeof input.sourceNodeId === 'string' ? input.sourceNodeId : '';
     const targetNodeId = typeof input.targetNodeId === 'string' ? input.targetNodeId : '';
     if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) throw new BadRequestException('Elige dos representaciones de Recursos diferentes.');
@@ -79,7 +85,7 @@ export class RelationService {
         typeLabel = type.label;
       }
       const [from, to] = direction === 'undirected' && sourceResourceId > targetResourceId ? [targetResourceId, sourceResourceId] : [sourceResourceId, targetResourceId];
-      const [createdRelation] = await tx.insert(relations).values({ accountId, sourceResourceId: from, targetResourceId: to, direction, typeKey }).onConflictDoNothing().returning({ id: relations.id });
+      const [createdRelation] = await tx.insert(relations).values({ accountId, sourceResourceId: from, targetResourceId: to, direction, typeKey, createdByUserId: authorUserId, updatedByUserId: authorUserId }).onConflictDoNothing().returning({ id: relations.id });
       const [relation] = createdRelation ? [createdRelation] : await tx.select({ id: relations.id }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.sourceResourceId, from), eq(relations.targetResourceId, to), eq(relations.direction, direction), eq(relations.typeKey, typeKey))).limit(1);
       if (!relation) throw new ConflictException('No se pudo recuperar la Relación.');
       if (!createdRelation && input.reuseExisting !== true) throw new ConflictException({ message: 'Ya existe una Relación equivalente. Puedes mostrarla en este Diagrama.', details: { relationId: relation.id } });
@@ -95,5 +101,44 @@ export class RelationService {
       await tx.insert(diagramRevisions).values({ diagramId, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
       return { relationId: relation.id, edgeId, revision, document, reused: !createdRelation };
     }, { isolationLevel: 'serializable' }));
+  }
+
+  async get(accountId: string, id: string) {
+    const [relation] = await this.database.db.select().from(relations).where(and(eq(relations.id, id), eq(relations.accountId, accountId))).limit(1);
+    if (!relation) throw new NotFoundException('Relación no encontrada.');
+    const endpoints = await this.database.db.select({ id: resources.id, title: resources.title }).from(resources).where(and(eq(resources.accountId, accountId), inArray(resources.id, [relation.sourceResourceId, relation.targetResourceId])));
+    const type = relation.typeKey.startsWith('custom:') ? await this.database.db.select({ label: relationTypes.label }).from(relationTypes).where(and(eq(relationTypes.id, relation.typeKey.slice(7)), eq(relationTypes.accountId, accountId))).limit(1) : [];
+    const evidence = await this.database.db.select({ id: relationEvidence.id, resourceId: relationEvidence.resourceId, title: resources.title, excerpt: relationEvidence.excerpt, note: relationEvidence.note }).from(relationEvidence).innerJoin(resources, eq(resources.id, relationEvidence.resourceId)).where(eq(relationEvidence.relationId, id));
+    return { ...relation, typeLabel: type[0]?.label ?? commonRelationTypes.find(item => item.key === relation.typeKey)?.label ?? relation.typeKey, source: endpoints.find(item => item.id === relation.sourceResourceId)!, target: endpoints.find(item => item.id === relation.targetResourceId)!, evidence };
+  }
+
+  async update(accountId: string, authorUserId: string, id: string, input: EditInput) {
+    const label = optionalText(input.label, 'Etiqueta', 160);
+    const explanation = optionalText(input.explanation, 'Explicación', 10_000);
+    const provenance = optionalText(input.provenance, 'Procedencia', 2_000);
+    if (!['none', 'needs_evidence', 'confirmed'].includes(input.evidenceStatus as string)) throw new BadRequestException('Estado de evidencia inválido.');
+    if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) throw new BadRequestException('Revisión esperada inválida.');
+    if (!Array.isArray(input.evidence) || input.evidence.length > 10) throw new BadRequestException('La Relación admite hasta 10 citas.');
+    const evidence = input.evidence.map((item: unknown) => {
+      const value = item as { resourceId?: unknown; excerpt?: unknown; note?: unknown };
+      if (!value || typeof value !== 'object' || typeof value.resourceId !== 'string' || !uuid.test(value.resourceId)) throw new BadRequestException('Referencia de evidencia inválida.');
+      return { resourceId: value.resourceId, excerpt: optionalText(value.excerpt, 'Fragmento', 2_000), note: optionalText(value.note, 'Nota de evidencia', 2_000) };
+    });
+    if (input.evidenceStatus === 'confirmed' && evidence.length === 0) throw new BadRequestException('Añade una cita antes de marcar la evidencia como confirmada.');
+    if (input.evidenceStatus === 'none' && evidence.length > 0) throw new BadRequestException('Elige un estado de evidencia para las citas.');
+    await withSerializationRetry(() => this.database.db.transaction(async tx => {
+      const [current] = await tx.select().from(relations).where(and(eq(relations.id, id), eq(relations.accountId, accountId))).for('update').limit(1);
+      if (!current) throw new NotFoundException('Relación no encontrada.');
+      if (current.revision !== input.expectedRevision) throw new ConflictException({ message: 'La Relación cambió en otra sesión.', details: { currentRevision: current.revision } });
+      const evidenceIds = [...new Set(evidence.map(item => item.resourceId))];
+      if (evidenceIds.length) {
+        const owned = await tx.select({ id: resources.id }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, evidenceIds))).for('share');
+        if (owned.length !== evidenceIds.length) throw new NotFoundException('Recurso de evidencia no encontrado en esta Cuenta.');
+      }
+      await tx.update(relations).set({ label, explanation, provenance, evidenceStatus: input.evidenceStatus as 'none' | 'needs_evidence' | 'confirmed', revision: current.revision + 1, updatedByUserId: authorUserId, updatedAt: new Date() }).where(eq(relations.id, id));
+      await tx.delete(relationEvidence).where(eq(relationEvidence.relationId, id));
+      if (evidence.length) await tx.insert(relationEvidence).values(evidence.map(item => ({ relationId: id, ...item })));
+    }, { isolationLevel: 'serializable' }));
+    return this.get(accountId, id);
   }
 }

@@ -102,8 +102,24 @@ export const relations = pgTable('relations', {
   targetResourceId: uuid('target_resource_id').notNull().references(() => resources.id),
   direction: text('direction').$type<'directed' | 'undirected'>().notNull(),
   typeKey: text('type_key').notNull(),
+  label: text('label'),
+  explanation: text('explanation'),
+  provenance: text('provenance'),
+  evidenceStatus: text('evidence_status').$type<'none' | 'needs_evidence' | 'confirmed'>().default('none').notNull(),
+  revision: integer('revision').default(0).notNull(),
+  createdByUserId: uuid('created_by_user_id').references(() => users.id),
+  updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex('relations_equivalent_uq').on(table.accountId, table.sourceResourceId, table.targetResourceId, table.direction, table.typeKey)]);
+export const relationEvidence = pgTable('relation_evidence', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  relationId: uuid('relation_id').notNull().references(() => relations.id),
+  resourceId: uuid('resource_id').notNull().references(() => resources.id),
+  excerpt: text('excerpt'),
+  note: text('note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
 export const uploads = pgTable('uploads', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
