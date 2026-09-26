@@ -930,6 +930,19 @@
       "post": { "operationId": "createDiagram", "security": [{ "bearerAuth": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramInput" } } } }, "responses": { "201": { "description": "Diagrama creado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } } }
     },
     "/v1/diagrams/{id}/document": { "put": { "operationId": "saveDiagramDocument", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramSaveInput" } } } }, "responses": { "200": { "description": "Revisión guardada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramSaveResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Conflicto de revisión", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } } } },
+    "/v1/diagrams/{id}/share-preview": {
+      "get": {
+        "operationId": "getDiagramSharePreview",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Vista previa privada del diagrama guardado", "headers": { "Cache-Control": { "schema": { "type": "string", "const": "private, no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SharePreviewResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Referencias no disponibles para la vista previa", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } }
+        }
+      }
+    },
     "/v1/diagrams/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
       "get": { "operationId": "getDiagram", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Diagrama", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
@@ -1666,6 +1679,38 @@
       "DiagramInput": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 120 } } },
       "DiagramResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/Diagram" } } },
       "DiagramListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/DiagramSummary" } } } },
+      "SharePreviewResource": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "title", "type", "description", "content", "url", "accessibilityText", "mediaType"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "title": { "type": "string" }, "type": { "type": "string", "enum": ["note", "file", "link"] },
+          "description": { "type": ["string", "null"] }, "content": { "type": ["string", "null"] }, "url": { "type": ["string", "null"] },
+          "accessibilityText": { "type": ["string", "null"] }, "mediaType": { "type": ["string", "null"] }
+        }
+      },
+      "SharePreviewRelation": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "sourceResourceId", "targetResourceId", "direction", "typeKey", "label", "explanation"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": "string", "format": "uuid" },
+          "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" },
+          "label": { "type": ["string", "null"] }, "explanation": { "type": ["string", "null"] }
+        }
+      },
+      "SharePreviewWarning": {
+        "type": "object", "additionalProperties": false, "required": ["resourceId", "field", "message"],
+        "properties": { "resourceId": { "type": "string", "format": "uuid" }, "field": { "type": "string" }, "message": { "type": "string" } }
+      },
+      "SharePreview": {
+        "type": "object", "additionalProperties": false, "required": ["diagramName", "revision", "resources", "relations", "warnings", "ready"],
+        "properties": {
+          "diagramName": { "type": "string" }, "revision": { "type": "integer" },
+          "resources": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewResource" } },
+          "relations": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewRelation" } },
+          "warnings": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewWarning" } }, "ready": { "type": "boolean" }
+        }
+      },
+      "SharePreviewResponse": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/SharePreview" } } },
       "RelationTypeOption": { "type": "object", "required": ["key", "label"], "properties": { "key": { "type": "string" }, "label": { "type": "string" } } },
       "RelationTypeListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/RelationTypeOption" } } } },
       "AvailableRelation": { "type": "object", "required": ["relationId", "sourceResourceId", "targetResourceId", "sourceNodeId", "targetNodeId", "sourceTitle", "targetTitle", "direction", "typeKey", "typeLabel", "label", "evidenceStatus"], "properties": { "relationId": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": "string", "format": "uuid" }, "sourceNodeId": { "type": "string" }, "targetNodeId": { "type": "string" }, "sourceTitle": { "type": "string" }, "targetTitle": { "type": "string" }, "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" }, "typeLabel": { "type": "string" }, "label": { "type": ["string", "null"] }, "evidenceStatus": { "type": "string", "enum": ["none", "needs_evidence", "confirmed"] } } },
