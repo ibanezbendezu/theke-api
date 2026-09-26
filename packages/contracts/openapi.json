@@ -1226,6 +1226,170 @@
           }
         }
       }
+    },
+    "/v1/ai/status": {
+      "get": {
+        "operationId": "getAiStatus",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado de IA, consentimiento y cuotas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/ai/consent": {
+      "post": {
+        "operationId": "updateAiConsent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiConsentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Consentimiento otorgado o actualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/ai/revoke-consent": {
+      "post": {
+        "operationId": "revokeAiConsent",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consentimiento revocado e IA desactivada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/ai/settings": {
+      "post": {
+        "operationId": "updateAiSettings",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Configuración de IA actualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/ai/preflight-check": {
+      "post": {
+        "operationId": "preflightAiCheck",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiPreflightInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Evaluación preflight de recursos, límites y cuotas",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreflightResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2279,6 +2443,180 @@
             "type": "string",
             "maxLength": 2000
           }
+        }
+      },
+      "AiPolicy": {
+        "type": "object",
+        "required": [
+          "provider",
+          "model",
+          "store",
+          "reasoningEffort",
+          "retentionDays",
+          "trainModels",
+          "description"
+        ],
+        "properties": {
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "store": { "type": "boolean" },
+          "reasoningEffort": { "type": "string" },
+          "retentionDays": { "type": "integer" },
+          "trainModels": { "type": "boolean" },
+          "description": { "type": "string" }
+        }
+      },
+      "AiConsentStatus": {
+        "type": "object",
+        "required": [
+          "required",
+          "currentVersion",
+          "acceptedVersion",
+          "consentedAt",
+          "isConsented",
+          "provider",
+          "model",
+          "policy"
+        ],
+        "properties": {
+          "required": { "type": "boolean" },
+          "currentVersion": { "type": "string" },
+          "acceptedVersion": { "type": ["string", "null"] },
+          "consentedAt": { "type": ["string", "null"], "format": "date-time" },
+          "isConsented": { "type": "boolean" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "policy": { "$ref": "#/components/schemas/AiPolicy" }
+        }
+      },
+      "AiQuotaStatus": {
+        "type": "object",
+        "required": [
+          "dailyRuns",
+          "monthlyBudget",
+          "maxInputTokens",
+          "maxOutputTokens"
+        ],
+        "properties": {
+          "dailyRuns": {
+            "type": "object",
+            "required": ["used", "limit", "remaining"],
+            "properties": {
+              "used": { "type": "integer" },
+              "limit": { "type": "integer" },
+              "remaining": { "type": "integer" }
+            }
+          },
+          "monthlyBudget": {
+            "type": "object",
+            "required": ["usedUsd", "limitUsd", "remainingUsd"],
+            "properties": {
+              "usedUsd": { "type": "number" },
+              "limitUsd": { "type": "number" },
+              "remainingUsd": { "type": "number" }
+            }
+          },
+          "maxInputTokens": { "type": "integer" },
+          "maxOutputTokens": { "type": "integer" }
+        }
+      },
+      "AiStatus": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "consent",
+          "quota"
+        ],
+        "properties": {
+          "enabled": { "type": "boolean" },
+          "consent": { "$ref": "#/components/schemas/AiConsentStatus" },
+          "quota": { "$ref": "#/components/schemas/AiQuotaStatus" }
+        }
+      },
+      "AiStatusResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AiStatus" }
+        }
+      },
+      "AiConsentInput": {
+        "type": "object",
+        "required": ["consentVersion"],
+        "properties": {
+          "consentVersion": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "AiSettingsInput": {
+        "type": "object",
+        "required": ["enabled"],
+        "properties": {
+          "enabled": { "type": "boolean" }
+        }
+      },
+      "PreflightResourceAssessment": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "type",
+          "estimatedTokens",
+          "valid",
+          "issues"
+        ],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "type": { "type": "string", "enum": ["note", "file", "link"] },
+          "estimatedTokens": { "type": "integer" },
+          "valid": { "type": "boolean" },
+          "issues": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "AiPreflightInput": {
+        "type": "object",
+        "required": ["resourceIds"],
+        "properties": {
+          "resourceIds": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" }
+          },
+          "expectedOutputTokens": { "type": "integer" }
+        }
+      },
+      "AiPreflightResult": {
+        "type": "object",
+        "required": [
+          "allowed",
+          "resources",
+          "totalEstimatedInputTokens",
+          "maxInputTokens",
+          "remainingDailyRuns",
+          "remainingMonthlyBudgetUsd"
+        ],
+        "properties": {
+          "allowed": { "type": "boolean" },
+          "reason": { "type": "string" },
+          "errorCode": { "type": "string" },
+          "resources": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PreflightResourceAssessment" }
+          },
+          "totalEstimatedInputTokens": { "type": "integer" },
+          "maxInputTokens": { "type": "integer" },
+          "remainingDailyRuns": { "type": "integer" },
+          "remainingMonthlyBudgetUsd": { "type": "number" }
+        }
+      },
+      "AiPreflightResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": {
+          "data": { "$ref": "#/components/schemas/AiPreflightResult" }
         }
       }
     }

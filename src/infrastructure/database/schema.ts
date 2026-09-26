@@ -1,4 +1,4 @@
-import { bigint, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 export const users = pgTable('users', { id: uuid('id').defaultRandom().primaryKey(), clerkUserId: text('clerk_user_id').notNull().unique(), email: text('email'), displayName: text('display_name'), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const accounts = pgTable('accounts', { id: uuid('id').defaultRandom().primaryKey(), personalOwnerUserId: uuid('personal_owner_user_id').notNull().references(() => users.id).unique(), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const memberships = pgTable('memberships', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), userId: uuid('user_id').notNull().references(() => users.id), role: text('role').$type<'owner' | 'member'>().notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() }, (table) => [uniqueIndex('memberships_account_user_uq').on(table.accountId, table.userId)]);
@@ -183,3 +183,35 @@ export const operationReceipts = pgTable('operation_receipts', {
   result: jsonb('result').$type<Record<string, unknown>>().notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [uniqueIndex('operation_receipts_account_key_uq').on(table.accountId, table.idempotencyKey)]);
+
+export const accountAiSettings = pgTable('account_ai_settings', {
+  accountId: uuid('account_id').primaryKey().references(() => accounts.id),
+  enabled: boolean('enabled').default(false).notNull(),
+  provider: text('provider').default('openai').notNull(),
+  model: text('model').default('gpt-5.6-terra').notNull(),
+  acceptedConsentVersion: text('accepted_consent_version'),
+  consentedAt: timestamp('consented_at', { withTimezone: true }),
+  consentedByUserId: uuid('consented_by_user_id').references(() => users.id),
+  maxInputTokens: integer('max_input_tokens').default(50000).notNull(),
+  maxOutputTokens: integer('max_output_tokens').default(4000).notNull(),
+  dailyRunsLimit: integer('daily_runs_limit').default(10).notNull(),
+  monthlyBudgetUsd: numeric('monthly_budget_usd', { precision: 10, scale: 2 }).default('5.00').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const aiUsageRecords = pgTable('ai_usage_records', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  feature: text('feature').notNull(),
+  consentVersion: text('consent_version').notNull(),
+  provider: text('provider').notNull(),
+  model: text('model').notNull(),
+  inputTokens: integer('input_tokens').default(0).notNull(),
+  outputTokens: integer('output_tokens').default(0).notNull(),
+  estimatedCostUsd: numeric('estimated_cost_usd', { precision: 10, scale: 4 }).default('0.0000').notNull(),
+  status: text('status').$type<'success' | 'failed' | 'blocked_quota' | 'rejected'>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('ai_usage_records_account_created_idx').on(table.accountId, table.createdAt),
+]);
