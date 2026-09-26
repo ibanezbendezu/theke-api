@@ -11,6 +11,7 @@ const scoped = [
 ];
 
 function setup() {
+  vi.stubEnv('AI_PROVIDER_ENABLED', 'true');
   const select = vi.fn()
     .mockImplementationOnce(() => ({ from: () => ({ where: () => ({ limit: async () => [relation] }) }) }))
     .mockImplementationOnce(() => ({ from: () => ({ leftJoin: () => ({ leftJoin: () => ({ leftJoin: () => ({ where: async () => scoped }) }) }) }) }));
@@ -26,6 +27,17 @@ function response(evidence: unknown = [{ resourceId: sourceId, excerpt: 'Prueba 
 
 describe('sugerencias de relaciones de IA', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+  it('bloquea aun con clave y consentimiento antes de consultar datos o llamar al proveedor', async () => {
+    const { service, database, ai } = setup();
+    vi.stubEnv('AI_PROVIDER_ENABLED', 'false');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    await expect(service.suggest('account', 'user', { relationId })).rejects.toMatchObject({ response: { errorCode: 'PROVIDER_PENDING' } });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(database.db.select).not.toHaveBeenCalled();
+    expect(ai.recordUsage).not.toHaveBeenCalled();
+  });
 
   it('rechaza sin consentimiento y no envía información al proveedor', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-key');

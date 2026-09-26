@@ -8,6 +8,7 @@ import {
   AiPreflightResult,
   AiSettingsInput,
   AiStatusResponse,
+  isAiProviderAvailable,
   BASELINE_AI_POLICY,
   CURRENT_AI_CONSENT_VERSION,
   PreflightResourceAssessment,
@@ -61,6 +62,7 @@ export class AiService {
 
     return {
       enabled,
+      providerAvailability: { available: isAiProviderAvailable(), reason: isAiProviderAvailable() ? null : 'PROVIDER_PENDING' },
       consent: {
         required: !isConsented,
         currentVersion: CURRENT_AI_CONSENT_VERSION,
@@ -351,7 +353,8 @@ export class AiService {
     }
 
     return {
-      allowed: true,
+      allowed: isAiProviderAvailable(),
+      ...(!isAiProviderAvailable() ? { errorCode: 'PROVIDER_PENDING' as const, reason: 'La integración con el proveedor de IA está pendiente. La edición manual sigue disponible.' } : {}),
       resources: assessments,
       totalEstimatedInputTokens,
       maxInputTokens: status.quota.maxInputTokens,

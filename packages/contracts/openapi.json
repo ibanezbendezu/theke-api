@@ -1368,6 +1368,33 @@
         }
       }
     },
+    "/v1/ai/group-guidance/prepare": {
+      "post": {
+        "operationId": "prepareAiGroupGuidance",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiGroupScopeInput" } } }
+        },
+        "responses": {
+          "201": { "description": "Alcance sin inferencia", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiScopeResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/v1/ai/diagram-review/prepare": {
+      "post": {
+        "operationId": "prepareAiDiagramReview",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiDiagramScopeInput" } } } },
+        "responses": {
+          "201": { "description": "Alcance sin hallazgos", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AiScopeResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/v1/ai/preflight-check": {
       "post": {
         "operationId": "preflightAiCheck",
@@ -2539,11 +2566,13 @@
         "type": "object",
         "required": [
           "enabled",
+          "providerAvailability",
           "consent",
           "quota"
         ],
         "properties": {
           "enabled": { "type": "boolean" },
+          "providerAvailability": { "type": "object", "required": ["available", "reason"], "properties": { "available": { "type": "boolean" }, "reason": { "type": ["string", "null"], "enum": ["PROVIDER_PENDING", null] } } },
           "consent": { "$ref": "#/components/schemas/AiConsentStatus" },
           "quota": { "$ref": "#/components/schemas/AiQuotaStatus" }
         }
@@ -2638,6 +2667,32 @@
         "type": "object",
         "required": ["relationId"],
         "properties": { "relationId": { "type": "string", "format": "uuid" } }
+      },
+      "AiGroupScopeInput": {
+        "type": "object",
+        "required": ["diagramId", "groupId"],
+        "properties": { "diagramId": { "type": "string", "format": "uuid" }, "groupId": { "type": "string" } }
+      },
+      "AiDiagramScopeInput": {
+        "type": "object",
+        "required": ["diagramId"],
+        "properties": { "diagramId": { "type": "string", "format": "uuid" }, "nodeIds": { "type": "array", "maxItems": 1000, "items": { "type": "string" } } }
+      },
+      "AiScopePreparation": {
+        "type": "object",
+        "required": ["resourceIds", "excluded", "limitations", "available", "reason"],
+        "properties": {
+          "resourceIds": { "type": "array", "items": { "type": "string", "format": "uuid" } },
+          "excluded": { "type": "array", "items": { "type": "object", "required": ["nodeId", "reason"], "properties": { "nodeId": { "type": "string" }, "reason": { "type": "string" } } } },
+          "limitations": { "type": "array", "items": { "type": "string" } },
+          "available": { "type": "boolean", "enum": [false] },
+          "reason": { "type": "string", "enum": ["PROVIDER_PENDING"] }
+        }
+      },
+      "AiScopeResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/AiScopePreparation" } }
       },
       "RelationSuggestionEvidence": {
         "type": "object",

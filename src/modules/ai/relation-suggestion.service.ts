@@ -4,7 +4,7 @@ import { Database } from '../../infrastructure/database/database.js';
 import { relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 import { commonRelationTypes } from '../relations/relation.service.js';
 import { AiService } from './ai.service.js';
-import { BASELINE_AI_POLICY, type RelationSuggestion, type RelationSuggestionInput } from './ai.types.js';
+import { BASELINE_AI_POLICY, isAiProviderAvailable, type RelationSuggestion, type RelationSuggestionInput } from './ai.types.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const outputTokenCeiling = 2000;
@@ -37,6 +37,7 @@ export class RelationSuggestionService {
   constructor(@Inject(Database) private readonly database: Database, @Inject(AiService) private readonly ai: AiService) {}
 
   async suggest(accountId: string, userId: string, input: RelationSuggestionInput): Promise<RelationSuggestion> {
+    if (!isAiProviderAvailable()) throw new ServiceUnavailableException({ message: 'La integración con el proveedor de IA está pendiente.', errorCode: 'PROVIDER_PENDING' });
     if (!input || typeof input.relationId !== 'string' || !uuid.test(input.relationId)) throw new BadRequestException('Identificador de Relación inválido.');
     const [relation] = await this.database.db.select({ sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId })
       .from(relations).where(and(eq(relations.id, input.relationId), eq(relations.accountId, accountId), isNull(relations.archivedAt), isNull(relations.deletedAt))).limit(1);
