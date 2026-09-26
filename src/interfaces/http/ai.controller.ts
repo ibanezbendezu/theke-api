@@ -3,7 +3,8 @@ import { AuthContext, type AuthContextValue } from '../../infrastructure/auth/au
 import { ClerkAuthGuard } from '../../infrastructure/auth/clerk-auth.guard.js';
 import { AccountService } from '../../modules/account/account.service.js';
 import { AiService } from '../../modules/ai/ai.service.js';
-import type { AiConsentInput, AiPreflightInput, AiSettingsInput } from '../../modules/ai/ai.types.js';
+import { RelationSuggestionService } from '../../modules/ai/relation-suggestion.service.js';
+import type { AiConsentInput, AiPreflightInput, AiSettingsInput, RelationSuggestionInput } from '../../modules/ai/ai.types.js';
 
 @Controller('v1/ai')
 @UseGuards(ClerkAuthGuard)
@@ -11,6 +12,7 @@ export class AiController {
   constructor(
     @Inject(AccountService) private readonly accounts: AccountService,
     @Inject(AiService) private readonly ai: AiService,
+    @Inject(RelationSuggestionService) private readonly suggestions: RelationSuggestionService,
   ) {}
 
   private async accountId(auth: AuthContextValue) {
@@ -44,5 +46,11 @@ export class AiController {
   async preflightCheck(@AuthContext() auth: AuthContextValue, @Body() body: AiPreflightInput) {
     const identity = await this.accounts.ensureLocalUser(auth);
     return { data: await this.ai.preflightCheck(identity.account.id, identity.user.id, body) };
+  }
+
+  @Post('relation-suggestions')
+  async relationSuggestion(@AuthContext() auth: AuthContextValue, @Body() body: RelationSuggestionInput) {
+    const identity = await this.accounts.ensureLocalUser(auth);
+    return { data: await this.suggestions.suggest(identity.account.id, identity.user.id, body) };
   }
 }

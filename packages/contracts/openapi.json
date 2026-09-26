@@ -1353,6 +1353,21 @@
         }
       }
     },
+    "/v1/ai/relation-suggestions": {
+      "post": {
+        "operationId": "suggestAiRelation",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RelationSuggestionInput" } } }
+        },
+        "responses": {
+          "200": { "description": "Sugerencia sin guardar", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RelationSuggestionResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
     "/v1/ai/preflight-check": {
       "post": {
         "operationId": "preflightAiCheck",
@@ -2618,6 +2633,38 @@
         "properties": {
           "data": { "$ref": "#/components/schemas/AiPreflightResult" }
         }
+      },
+      "RelationSuggestionInput": {
+        "type": "object",
+        "required": ["relationId"],
+        "properties": { "relationId": { "type": "string", "format": "uuid" } }
+      },
+      "RelationSuggestionEvidence": {
+        "type": "object",
+        "required": ["resourceId", "excerpt"],
+        "properties": { "resourceId": { "type": "string", "format": "uuid" }, "excerpt": { "type": "string" } }
+      },
+      "RelationSuggestion": {
+        "type": "object",
+        "required": ["sourceResourceId", "targetResourceId", "direction", "typeKey", "label", "explanation", "uncertainty", "evidence", "provider", "model", "createdAt"],
+        "properties": {
+          "sourceResourceId": { "type": "string", "format": "uuid" },
+          "targetResourceId": { "type": "string", "format": "uuid" },
+          "direction": { "type": "string", "enum": ["directed", "undirected"] },
+          "typeKey": { "type": "string" },
+          "label": { "type": "string" },
+          "explanation": { "type": "string" },
+          "uncertainty": { "type": "string" },
+          "evidence": { "type": "array", "items": { "$ref": "#/components/schemas/RelationSuggestionEvidence" } },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "RelationSuggestionResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/RelationSuggestion" } }
       }
     }
   }

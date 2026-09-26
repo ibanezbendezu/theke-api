@@ -75,3 +75,21 @@ export interface AiPreflightResult {
   remainingDailyRuns: number;
   remainingMonthlyBudgetUsd: number;
 }
+
+export interface RelationSuggestionInput {
+  relationId: string;
+}
+
+export interface RelationSuggestion {
+  direction: 'directed' | 'undirected';
+  typeKey: 'supports' | 'contradicts' | 'depends_on' | 'related_to';
+  label: string;
+  explanation: string;
+  uncertainty: string;
+  evidence: { resourceId: string; excerpt: string }[];
+  provider: string;
+  model: string;
+  createdAt: string;
+  sourceResourceId: string;
+  targetResourceId: string;
+}
