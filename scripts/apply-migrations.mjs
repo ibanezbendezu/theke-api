@@ -19,6 +19,9 @@ const migrations = [
   ['relations.archived_at', '../drizzle/0014_relation_lifecycle.sql'],
   ['resource_mentions', '../drizzle/0015_resource_knowledge.sql'],
   ['account_ai_settings', '../drizzle/0016_ai_governance.sql'],
+  ['diagram_shares', '../drizzle/0017_diagram_shares.sql'],
+  ['diagram_share_events', '../drizzle/0018_diagram_share_media_audit.sql'],
+  ['diagram_shares.comments_enabled', '../drizzle/0019_diagram_share_management.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

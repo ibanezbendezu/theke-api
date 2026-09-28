@@ -1,3 +1,4 @@
+import { isNull } from 'drizzle-orm';
 import { bigint, boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 export const users = pgTable('users', { id: uuid('id').defaultRandom().primaryKey(), clerkUserId: text('clerk_user_id').notNull().unique(), email: text('email'), displayName: text('display_name'), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const accounts = pgTable('accounts', { id: uuid('id').defaultRandom().primaryKey(), personalOwnerUserId: uuid('personal_owner_user_id').notNull().references(() => users.id).unique(), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
@@ -32,6 +33,28 @@ export const diagramRevisions = pgTable('diagram_revisions', {
   document: jsonb('document').$type<typeof diagrams.$inferSelect.document>().notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex('diagram_revisions_diagram_revision_uq').on(table.diagramId, table.revision), uniqueIndex('diagram_revisions_diagram_key_uq').on(table.diagramId, table.idempotencyKey)]);
+export const diagramShares = pgTable('diagram_shares', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  diagramId: uuid('diagram_id').notNull().references(() => diagrams.id),
+  tokenHash: text('token_hash').notNull().unique(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  projection: jsonb('projection').$type<{ diagramName: string; revision: number; resources: unknown[]; relations: unknown[] }>().notNull(),
+  mediaManifest: jsonb('media_manifest').$type<Record<string, { versionId: string; storageKey: string; mediaType: string; filename: string }>>().notNull().default({}),
+  commentsEnabled: boolean('comments_enabled').notNull().default(true),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('diagram_shares_account_key_uq').on(table.accountId, table.idempotencyKey), uniqueIndex('diagram_shares_active_diagram_uq').on(table.diagramId).where(isNull(table.revokedAt))]);
+export const diagramShareEvents = pgTable('diagram_share_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  diagramId: uuid('diagram_id').notNull().references(() => diagrams.id),
+  shareId: uuid('share_id').notNull().references(() => diagramShares.id),
+  actorUserId: uuid('actor_user_id').notNull().references(() => users.id),
+    action: text('action').$type<'published' | 'retried' | 'refreshed' | 'comments_changed' | 'revoked'>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+});
 export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
@@ -13,8 +14,8 @@ type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; data?:
 export class SharePreviewService {
   constructor(@Inject(Database) private readonly database: Database, @Inject(DiagramService) private readonly diagrams: DiagramService) {}
 
-  async get(accountId: string, diagramId: string) {
-    const diagram = await this.diagrams.get(accountId, diagramId);
+  async get(accountId: string, diagramId: string, db: Database['db'] = this.database.db) {
+    const diagram = await this.diagrams.get(accountId, diagramId, db);
     if (diagram.archivedAt) throw new ConflictException('El diagrama está archivado.');
     const nodes = diagram.document.nodes as CanvasNode[];
     const edges = diagram.document.edges as CanvasEdge[];
@@ -22,9 +23,9 @@ export class SharePreviewService {
     const resourceIds = [...new Set(represented.map(node => node.data?.resourceId))];
     if (resourceIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de recurso no disponible.');
     const ids = resourceIds as string[];
-    const resourceRows = ids.length ? await this.database.db.select({
+    const resourceRows = ids.length ? await db.select({
       id: resources.id, title: resources.title, type: resources.type, description: resources.description,
-      content: resourceVersions.content, mediaType: resourceVersions.mediaType,
+      versionId: resourceVersions.id, content: resourceVersions.content, mediaType: resourceVersions.mediaType, storageKey: resourceVersions.storageKey,
       accessibilityText: resourceAccessibility.text, url: resourceLinks.url,
     }).from(resources).innerJoin(resourceVersions, and(eq(resourceVersions.id, resources.currentVersionId), eq(resourceVersions.resourceId, resources.id)))
       .leftJoin(resourceAccessibility, eq(resourceAccessibility.resourceId, resources.id))
@@ -44,6 +45,7 @@ export class SharePreviewService {
         }
       }
       if (row.type === 'file') {
+        if (!row.storageKey) warnings.push({ resourceId: id, field: 'file', message: 'El archivo original no está disponible para compartir.' });
         if (!row.accessibilityText?.trim()) warnings.push({ resourceId: id, field: 'accessibilityText', message: 'El archivo necesita texto de accesibilidad.' });
         if (!row.mediaType || !supportedMedia.has(row.mediaType.toLowerCase())) warnings.push({ resourceId: id, field: 'mediaType', message: 'El formato del archivo no es compatible con la vista previa.' });
       }
@@ -61,7 +63,7 @@ export class SharePreviewService {
     const relationIds = [...new Set(relationEdges.map(edge => edge.data?.relationId))];
     if (relationIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de relación no disponible.');
     const relationKeys = relationIds as string[];
-    const relationRows = relationKeys.length ? await this.database.db.select({
+    const relationRows = relationKeys.length ? await db.select({
       id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId,
       direction: relations.direction, typeKey: relations.typeKey, label: relations.label, explanation: relations.explanation,
     }).from(relations).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.id, relationKeys))) : [];
@@ -78,10 +80,12 @@ export class SharePreviewService {
         throw new ConflictException('Los extremos de la relación no corresponden al Canvas.');
       }
     }
-    return { diagramName: diagram.name, revision: diagram.revision, resources: publicResources,
+    const projection = { diagramName: diagram.name, revision: diagram.revision, resources: publicResources,
       relations: relationKeys.map(id => { const row = relationById.get(id)!; return {
         id: row.id, sourceResourceId: row.sourceResourceId, targetResourceId: row.targetResourceId,
         direction: row.direction, typeKey: row.typeKey, label: row.label ?? null, explanation: row.explanation ?? null,
-      }; }), warnings, ready: warnings.length === 0 };
+      }; }) };
+    const fingerprint = createHash('sha256').update(JSON.stringify({ projection, versions: ids.map(id => resourceById.get(id)!.versionId) })).digest('hex');
+    return { ...projection, fingerprint, warnings, ready: warnings.length === 0 };
   }
 }

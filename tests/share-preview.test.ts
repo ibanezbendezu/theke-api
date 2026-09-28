@@ -5,8 +5,8 @@ import { SharePreviewService } from '../src/modules/diagrams/share-preview.servi
 const resourceId = '11111111-1111-4111-8111-111111111111';
 const otherId = '22222222-2222-4222-8222-222222222222';
 const relationId = '33333333-3333-4333-8333-333333333333';
-const note = { id: resourceId, type: 'note', title: 'Nota', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null, properties: { secret: 'private' }, storageKey: 'private/key' };
-const file = { id: otherId, type: 'file', title: 'Imagen', description: null, content: '', url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png' };
+const note = { id: resourceId, versionId: 'note-version-1', type: 'note', title: 'Nota', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null, properties: { secret: 'private' }, storageKey: null };
+const file = { id: otherId, versionId: 'file-version-1', type: 'file', title: 'Imagen', description: null, content: '', url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png', storageKey: 'private/file' };
 const relation = { id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', provenance: 'private' };
 const nodes = [{ id: 'n1', type: 'resource', data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', data: { resourceId: otherId } }, { id: 'folder', type: 'folder', data: { name: 'Private folder' } }];
 const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { relationId, privateReference: 'hidden' } }];
@@ -31,7 +31,7 @@ describe('preview privado de diagramas', () => {
   it('rechaza diagramas ajenos antes de consultar recursos', async () => {
     const { service, database, diagrams } = setup({ rejected: true });
     await expect(service.get('other-account', 'diagram')).rejects.toBeInstanceOf(NotFoundException);
-    expect(diagrams.get).toHaveBeenCalledWith('other-account', 'diagram');
+    expect(diagrams.get).toHaveBeenCalledWith('other-account', 'diagram', database.db);
     expect(database.db.select).not.toHaveBeenCalled();
   });
 
@@ -41,7 +41,7 @@ describe('preview privado de diagramas', () => {
     expect(preview).toEqual({ diagramName: 'Mapa', revision: 7, resources: [
       { id: resourceId, title: 'Nota', type: 'note', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null },
       { id: otherId, title: 'Imagen', type: 'file', description: null, content: null, url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png' },
-    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación' }], warnings: [], ready: true });
+    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación' }], fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(JSON.stringify(preview)).not.toMatch(/private|secret|storageKey|versionId|projectId|folder|viewport|Unrelated|provenance/);
     expect(select).toHaveBeenCalledTimes(2);
     expect(database.db.insert).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('preview privado de diagramas', () => {
 
   it('permite diagramas vacíos sin consultar registros adicionales', async () => {
     const { service, database } = setup({ nodes: [], edges: [] });
-    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], warnings: [], ready: true });
+    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(database.db.select).not.toHaveBeenCalled();
   });
 
@@ -100,5 +100,12 @@ describe('preview privado de diagramas', () => {
   it('no expone referencias wiki a recursos privados desde el contenido de una nota', async () => {
     const { service } = setup({ resourceRows: [{ ...note, content: `Texto [[resource:${relationId}|Nota privada]]` }, file] });
     await expect(service.get('owner', 'diagram')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('cambia la huella cuando cambia una revisión o el contenido público canónico', async () => {
+    const first = await setup().service.get('owner', 'diagram');
+    const second = await setup({ resourceRows: [{ ...note, content: 'Nuevo texto' }, file] }).service.get('owner', 'diagram');
+    expect(first.fingerprint).not.toBe(second.fingerprint);
+    expect((await setup().service.get('owner', 'diagram')).fingerprint).toBe(first.fingerprint);
   });
 });

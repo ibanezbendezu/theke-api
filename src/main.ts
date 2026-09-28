@@ -8,7 +8,10 @@ import { HttpErrorFilter } from './interfaces/http/http-exception.filter.js';
 import { parseEnvironmentList, validateEnvironment } from './config/environment.js';
 
 validateEnvironment();
-const adapter = new FastifyAdapter({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie'] }, genReqId: (request: IncomingMessage) => String(request.headers['x-request-id'] ?? crypto.randomUUID()) });
+const adapter = new FastifyAdapter({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie'],
+  serializers: { req: (request: { method: string; url: string }) => ({ method: request.method,
+    url: request.url.replace(/(\/v1\/public\/shares\/)[^/?]+/g, '$1[redacted]') }) } },
+genReqId: (request: IncomingMessage) => String(request.headers['x-request-id'] ?? crypto.randomUUID()) });
 const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { rawBody: true });
 await app.register(cors, { origin: parseEnvironmentList('WEB_ORIGINS'), methods: ['GET', 'POST', 'PATCH', 'PUT', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'] });
 app.getHttpAdapter().getInstance().addHook('onRequest', (request, reply, done) => {

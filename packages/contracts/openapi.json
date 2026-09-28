@@ -943,6 +943,53 @@
         }
       }
     },
+    "/v1/diagrams/{id}/shares": {
+      "post": {
+        "operationId": "publishDiagramShare", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublishShareInput" } } } },
+        "responses": {
+          "201": { "description": "Compartido publicado o reintentado", "headers": { "Cache-Control": { "schema": { "type": "string", "const": "private, no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublishShareResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Vista previa no vigente o publicación existente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } }
+        }
+      }
+    },
+    "/v1/diagrams/{id}/shares/active": {
+      "get": { "operationId": "getActiveDiagramShare", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "responses": { "200": { "description": "Estado del Compartido activo", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ActiveShareResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/diagrams/{id}/shares/active/comments": {
+      "patch": { "operationId": "setDiagramShareComments", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShareCommentsInput" } } } }, "responses": { "200": { "description": "Configuración de comentarios actualizada", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShareCommentsResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } } }
+    },
+    "/v1/diagrams/{id}/shares/active/projection": {
+      "put": { "operationId": "refreshDiagramShare", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshShareInput" } } } }, "responses": { "200": { "description": "Proyección pública sustituida atómicamente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshShareResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Versión pública o vista previa obsoleta", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } } }
+    },
+    "/v1/diagrams/{id}/shares/active/revoke": {
+      "post": { "operationId": "revokeDiagramShare", "security": [{ "bearerAuth": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeShareInput" } } } }, "responses": { "201": { "description": "Compartido revocado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RevokeShareResponse" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "description": "Versión pública obsoleta", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } } } }
+    },
+    "/v1/public/shares/{token}": {
+      "get": {
+        "operationId": "getPublicShare", "security": [],
+        "parameters": [{ "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } }],
+        "responses": {
+          "200": { "description": "Proyección pública inmutable", "headers": { "Cache-Control": { "schema": { "type": "string", "const": "no-store, max-age=0" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicShareResponse" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/v1/public/shares/{token}/resources/{resourceId}/content": {
+      "get": {
+        "operationId": "getPublicShareResourceContent", "security": [],
+        "parameters": [
+          { "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } },
+          { "name": "resourceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Contenido del archivo fijado al Compartido, entregado por la API sin exponer almacenamiento", "headers": { "Cache-Control": { "schema": { "type": "string", "const": "no-store, max-age=0" } } }, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
     "/v1/diagrams/{id}": {
       "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
       "get": { "operationId": "getDiagram", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "Diagrama", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DiagramResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } },
@@ -1702,15 +1749,29 @@
         "properties": { "resourceId": { "type": "string", "format": "uuid" }, "field": { "type": "string" }, "message": { "type": "string" } }
       },
       "SharePreview": {
-        "type": "object", "additionalProperties": false, "required": ["diagramName", "revision", "resources", "relations", "warnings", "ready"],
+        "type": "object", "additionalProperties": false, "required": ["diagramName", "revision", "resources", "relations", "fingerprint", "warnings", "ready"],
         "properties": {
           "diagramName": { "type": "string" }, "revision": { "type": "integer" },
           "resources": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewResource" } },
           "relations": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewRelation" } },
+          "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "warnings": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewWarning" } }, "ready": { "type": "boolean" }
         }
       },
       "SharePreviewResponse": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/SharePreview" } } },
+      "PublishShareInput": { "type": "object", "additionalProperties": false, "required": ["fingerprint", "idempotencyKey"], "properties": { "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 120 } } },
+      "PublishShareResult": { "type": "object", "additionalProperties": false, "required": ["url", "token"], "properties": { "url": { "type": "string", "pattern": "^/share/" }, "token": { "type": "string" } } },
+      "PublishShareResponse": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/PublishShareResult" } } },
+      "ActiveShare": { "oneOf": [{ "type": "object", "additionalProperties": false, "required": ["active"], "properties": { "active": { "const": false } } }, { "type": "object", "additionalProperties": false, "required": ["active", "url", "fingerprint", "revision", "commentsEnabled"], "properties": { "active": { "const": true }, "url": { "type": "string" }, "fingerprint": { "type": "string" }, "revision": { "type": "integer" }, "commentsEnabled": { "type": "boolean" } } }] },
+      "ActiveShareResponse": { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ActiveShare" } } },
+      "ShareCommentsInput": { "type": "object", "additionalProperties": false, "required": ["enabled"], "properties": { "enabled": { "type": "boolean" } } },
+      "ShareCommentsResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["commentsEnabled"], "properties": { "commentsEnabled": { "type": "boolean" } } } } },
+      "RefreshShareInput": { "type": "object", "additionalProperties": false, "required": ["fingerprint", "expectedPublishedFingerprint"], "properties": { "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "expectedPublishedFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+      "RefreshShareResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["fingerprint", "revision"], "properties": { "fingerprint": { "type": "string" }, "revision": { "type": "integer" } } } } },
+      "RevokeShareInput": { "type": "object", "additionalProperties": false, "required": ["expectedPublishedFingerprint", "confirmation"], "properties": { "expectedPublishedFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "confirmation": { "const": "REVOCAR" } } },
+      "RevokeShareResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["active"], "properties": { "active": { "const": false } } } } },
+      "PublicShare": { "type": "object", "additionalProperties": false, "required": ["diagramName", "revision", "resources", "relations", "commentsEnabled"], "properties": { "diagramName": { "type": "string" }, "revision": { "type": "integer" }, "resources": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewResource" } }, "relations": { "type": "array", "items": { "$ref": "#/components/schemas/SharePreviewRelation" } }, "commentsEnabled": { "type": "boolean" } } },
+      "PublicShareResponse": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/PublicShare" } } },
       "RelationTypeOption": { "type": "object", "required": ["key", "label"], "properties": { "key": { "type": "string" }, "label": { "type": "string" } } },
       "RelationTypeListResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/RelationTypeOption" } } } },
       "AvailableRelation": { "type": "object", "required": ["relationId", "sourceResourceId", "targetResourceId", "sourceNodeId", "targetNodeId", "sourceTitle", "targetTitle", "direction", "typeKey", "typeLabel", "label", "evidenceStatus"], "properties": { "relationId": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": "string", "format": "uuid" }, "sourceNodeId": { "type": "string" }, "targetNodeId": { "type": "string" }, "sourceTitle": { "type": "string" }, "targetTitle": { "type": "string" }, "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" }, "typeLabel": { "type": "string" }, "label": { "type": ["string", "null"] }, "evidenceStatus": { "type": "string", "enum": ["none", "needs_evidence", "confirmed"] } } },
