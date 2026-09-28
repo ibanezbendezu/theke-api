@@ -16,11 +16,13 @@ describe('frontera pública de Compartidos', () => {
     const controller = new PublicSharesController(shares as never);
     await expect(controller.get('valid', { header })).resolves.toEqual({ data: { diagramName: 'Mapa', revision: 1, resources: [], relations: [] } });
     expect(header).toHaveBeenCalledWith('Cache-Control', 'no-store, max-age=0');
-    await controller.media('valid', '11111111-1111-4111-8111-111111111111', { header });
+    await controller.media('valid', '11111111-1111-4111-8111-111111111111', undefined, { header });
     expect(shares.getPublicMedia).toHaveBeenCalledWith('valid', '11111111-1111-4111-8111-111111111111');
     expect(header).toHaveBeenCalledWith('Content-Disposition', "inline; filename*=UTF-8''imagen.png");
     expect(header).toHaveBeenCalledWith('Cross-Origin-Resource-Policy', 'cross-origin');
     expect(header).toHaveBeenCalledWith('Referrer-Policy', 'no-referrer');
+    await controller.media('valid', '11111111-1111-4111-8111-111111111111', '1', { header });
+    expect(header).toHaveBeenCalledWith('Content-Disposition', "attachment; filename*=UTF-8''imagen.png");
     await expect(controller.get('invalid', { header })).rejects.toBeInstanceOf(NotFoundException);
     expect(header).toHaveBeenCalledWith('Cache-Control', 'no-store, max-age=0');
   });

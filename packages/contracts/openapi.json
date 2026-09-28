@@ -982,7 +982,8 @@
         "operationId": "getPublicShareResourceContent", "security": [],
         "parameters": [
           { "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } },
-          { "name": "resourceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+          { "name": "resourceId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "download", "in": "query", "required": false, "description": "Si vale 1, la API entrega Content-Disposition: attachment. Cada solicitud vuelve a validar el Compartido y el Recurso.", "schema": { "type": "string", "enum": ["1"] } }
         ],
         "responses": {
           "200": { "description": "Contenido del archivo fijado al Compartido, entregado por la API sin exponer almacenamiento", "headers": { "Cache-Control": { "schema": { "type": "string", "const": "no-store, max-age=0" } } }, "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
