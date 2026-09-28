@@ -45,6 +45,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('Compartidos con PostgreSQL', 
     const published = await shares.publish(accountId, userId, diagramId, { fingerprint: current.fingerprint, idempotencyKey: key });
     expect(await shares.publish(accountId, userId, diagramId, { fingerprint: current.fingerprint, idempotencyKey: key })).toEqual(published);
     expect((await shares.getPublic(published.token)).resources).toEqual(current.resources);
+    expect((await shares.getPublic(published.token)).layout).toEqual(current.layout);
     const media = await shares.getPublicMedia(published.token, file!.id);
     expect(Buffer.concat(await Array.fromAsync(media.content))).toEqual(Buffer.from('private/original'));
     expect(read).toHaveBeenCalledWith('private/original');
@@ -64,6 +65,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('Compartidos con PostgreSQL', 
     expect(Buffer.concat(await Array.fromAsync((await shares.getPublicMedia(published.token, file!.id)).content))).toEqual(Buffer.from('private/original'));
     expect(await shares.refresh(accountId, userId, diagramId, { fingerprint: next.fingerprint, expectedPublishedFingerprint: current.fingerprint })).toEqual({ fingerprint: next.fingerprint, revision: next.revision });
     expect((await shares.getPublic(published.token)).resources).toEqual(next.resources);
+    expect((await shares.getPublic(published.token)).layout).toEqual(next.layout);
     expect(Buffer.concat(await Array.fromAsync((await shares.getPublicMedia(published.token, file!.id)).content))).toEqual(Buffer.from('private/replacement'));
     await expect(shares.revoke(accountId, userId, diagramId, { expectedPublishedFingerprint: current.fingerprint, confirmation: 'REVOCAR' })).rejects.toThrow('cambió');
     expect(await shares.revoke(accountId, userId, diagramId, { expectedPublishedFingerprint: next.fingerprint, confirmation: 'REVOCAR' })).toEqual({ active: false });

@@ -8,11 +8,11 @@ const relationId = '33333333-3333-4333-8333-333333333333';
 const note = { id: resourceId, versionId: 'note-version-1', type: 'note', title: 'Nota', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null, properties: { secret: 'private' }, storageKey: null };
 const file = { id: otherId, versionId: 'file-version-1', type: 'file', title: 'Imagen', description: null, content: '', url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png', storageKey: 'private/file' };
 const relation = { id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', provenance: 'private' };
-const nodes = [{ id: 'n1', type: 'resource', data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', data: { resourceId: otherId } }, { id: 'folder', type: 'folder', data: { name: 'Private folder' } }];
+const nodes = [{ id: 'n1', type: 'resource', position: { x: 10, y: 20 }, data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', position: { x: 200, y: 80 }, data: { resourceId: otherId } }, { id: 'folder', type: 'folder', position: { x: 300, y: 0 }, data: { name: 'Private folder' } }];
 const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { relationId, privateReference: 'hidden' } }];
 
-function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; relationRows?: object[]; rejected?: boolean } = {}) {
-  const where = vi.fn().mockImplementationOnce(async () => input.resourceRows ?? [note, file]).mockImplementationOnce(async () => input.relationRows ?? [relation]);
+function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; relationRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
+  const where = vi.fn().mockImplementationOnce(async () => input.resourceRows ?? [note, file]).mockImplementationOnce(async () => input.relationRows ?? [relation]).mockImplementationOnce(async () => input.evidenceRows ?? []);
   const select = vi.fn(() => {
     const chain: Record<string, unknown> = {};
     for (const key of ['from', 'innerJoin', 'leftJoin']) chain[key] = vi.fn(() => chain);
@@ -41,9 +41,11 @@ describe('preview privado de diagramas', () => {
     expect(preview).toEqual({ diagramName: 'Mapa', revision: 7, resources: [
       { id: resourceId, title: 'Nota', type: 'note', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null },
       { id: otherId, title: 'Imagen', type: 'file', description: null, content: null, url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png' },
-    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación' }], fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
+    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', evidence: [] }],
+      layout: { nodes: [{ id: 'r0', resourceId, x: 10, y: 20 }, { id: 'r1', resourceId: otherId, x: 200, y: 80 }], edges: [{ id: 'e0', relationId, source: 'r0', target: 'r1' }] },
+      fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(JSON.stringify(preview)).not.toMatch(/private|secret|storageKey|versionId|projectId|folder|viewport|Unrelated|provenance/);
-    expect(select).toHaveBeenCalledTimes(2);
+    expect(select).toHaveBeenCalledTimes(3);
     expect(database.db.insert).not.toHaveBeenCalled();
     expect(database.db.update).not.toHaveBeenCalled();
     expect(database.db.delete).not.toHaveBeenCalled();
@@ -81,7 +83,7 @@ describe('preview privado de diagramas', () => {
 
   it('permite diagramas vacíos sin consultar registros adicionales', async () => {
     const { service, database } = setup({ nodes: [], edges: [] });
-    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
+    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], layout: { nodes: [], edges: [] }, fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(database.db.select).not.toHaveBeenCalled();
   });
 
@@ -102,10 +104,38 @@ describe('preview privado de diagramas', () => {
     await expect(service.get('owner', 'diagram')).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('publica posiciones absolutas y solo evidencia de recursos representados', async () => {
+    const nested = { ...nodes[1], parentId: 'folder', position: { x: 20, y: 30 } };
+    const { service } = setup({ nodes: [nodes[0], nested, nodes[2]], evidenceRows: [
+      { id: 'a', relationId, resourceId, excerpt: 'Cita visible', note: 'Página revisada', pageNumber: 2 },
+      { id: 'b', relationId, resourceId: '44444444-4444-4444-8444-444444444444', excerpt: 'Cita privada' },
+    ] });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.layout.nodes[1]).toEqual({ id: 'r1', resourceId: otherId, x: 320, y: 30 });
+    expect(preview.relations[0]?.evidence).toEqual([{ resourceId, excerpt: 'Cita visible', note: 'Página revisada', pageNumber: 2 }]);
+    expect(JSON.stringify(preview)).not.toContain('Cita privada');
+  });
+
+  it('oculta recursos contenidos en un grupo oculto', async () => {
+    const { service } = setup({ nodes: [nodes[0], { ...nodes[1], parentId: 'folder' }, { ...nodes[2], hidden: true }], edges });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.resources.map(item => item.id)).toEqual([resourceId]);
+    expect(preview.layout.edges).toEqual([]);
+  });
+
   it('cambia la huella cuando cambia una revisión o el contenido público canónico', async () => {
     const first = await setup().service.get('owner', 'diagram');
     const second = await setup({ resourceRows: [{ ...note, content: 'Nuevo texto' }, file] }).service.get('owner', 'diagram');
     expect(first.fingerprint).not.toBe(second.fingerprint);
     expect((await setup().service.get('owner', 'diagram')).fingerprint).toBe(first.fingerprint);
+  });
+
+  it('mantiene la misma huella si PostgreSQL devuelve las citas en otro orden', async () => {
+    const first = { id: 'a', relationId, resourceId, excerpt: 'Primera cita', note: null, pageNumber: null };
+    const second = { id: 'b', relationId, resourceId: otherId, excerpt: 'Segunda cita', note: null, pageNumber: 2 };
+    const one = await setup({ evidenceRows: [first, second] }).service.get('owner', 'diagram');
+    const two = await setup({ evidenceRows: [second, first] }).service.get('owner', 'diagram');
+    expect(one.fingerprint).toBe(two.fingerprint);
+    expect(one.relations[0]?.evidence?.map(item => item.excerpt)).toEqual(['Primera cita', 'Segunda cita']);
   });
 });

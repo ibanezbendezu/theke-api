@@ -51,11 +51,11 @@ export class DiagramShareService {
       if (active) throw new ConflictException('El diagrama ya tiene un Compartido activo.');
       const current = await this.preview.get(accountId, diagramId, tx as unknown as Database['db']);
       if (!current.ready || current.fingerprint !== input.fingerprint) throw new ConflictException('La vista previa cambió o no está lista; revísala de nuevo.');
-      const { diagramName, revision, resources, relations } = current;
+      const { diagramName, revision, resources, relations, layout } = current;
       const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
       const shareId = crypto.randomUUID();
       await tx.insert(diagramShares).values({ id: shareId, accountId, diagramId, idempotencyKey: input.idempotencyKey as string,
-        fingerprint: current.fingerprint, tokenHash, projection: { diagramName, revision, resources, relations }, mediaManifest });
+        fingerprint: current.fingerprint, tokenHash, projection: { diagramName, revision, resources, relations, layout }, mediaManifest });
       await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId, actorUserId, action: 'published' });
       return { url: `/share/${token}`, token };
     }, { isolationLevel: 'serializable' }));
@@ -105,9 +105,9 @@ export class DiagramShareService {
       const current = await this.preview.get(accountId, diagramId, tx as unknown as Database['db']);
       if (!current.ready || current.fingerprint !== input.fingerprint) throw new ConflictException('La vista previa cambió o no está lista; revísala de nuevo.');
       if (share.fingerprint === current.fingerprint) return { fingerprint: share.fingerprint, revision: share.revision.revision };
-      const { diagramName, revision, resources, relations } = current;
+      const { diagramName, revision, resources, relations, layout } = current;
       const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
-      await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection: { diagramName, revision, resources, relations }, mediaManifest })
+      await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection: { diagramName, revision, resources, relations, layout }, mediaManifest })
         .where(eq(diagramShares.id, share.id));
       await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });
       return { fingerprint: current.fingerprint, revision };
@@ -139,8 +139,8 @@ export class DiagramShareService {
 
   async getPublic(token: string) {
     const share = await this.shareForToken(token);
-    const { diagramName, revision, resources, relations } = share.projection;
-    return { diagramName, revision, resources, relations, commentsEnabled: share.commentsEnabled };
+    const { diagramName, revision, resources, relations, layout } = share.projection;
+    return { diagramName, revision, resources, relations, layout: layout ?? { nodes: [], edges: [] }, commentsEnabled: share.commentsEnabled };
   }
 
   async getPublicMedia(token: string, resourceId: string) {

@@ -40,7 +40,8 @@ export const diagramShares = pgTable('diagram_shares', {
   tokenHash: text('token_hash').notNull().unique(),
   idempotencyKey: text('idempotency_key').notNull(),
   fingerprint: text('fingerprint').notNull(),
-  projection: jsonb('projection').$type<{ diagramName: string; revision: number; resources: unknown[]; relations: unknown[] }>().notNull(),
+    projection: jsonb('projection').$type<{ diagramName: string; revision: number; resources: unknown[]; relations: unknown[];
+      layout?: { nodes: { id: string; resourceId: string; x: number; y: number }[]; edges: { id: string; relationId: string; source: string; target: string }[] } }>().notNull(),
   mediaManifest: jsonb('media_manifest').$type<Record<string, { versionId: string; storageKey: string; mediaType: string; filename: string }>>().notNull().default({}),
   commentsEnabled: boolean('comments_enabled').notNull().default(true),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),

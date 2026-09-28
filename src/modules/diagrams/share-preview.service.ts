@@ -2,12 +2,12 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { relationEvidence, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 import { DiagramService } from './diagram.service.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const supportedMedia = new Set(['application/pdf', 'text/plain', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm']);
-type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; data?: { resourceId?: unknown } };
+type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; data?: { resourceId?: unknown } };
 type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; data?: { relationId?: unknown } };
 
 @Injectable()
@@ -19,7 +19,26 @@ export class SharePreviewService {
     if (diagram.archivedAt) throw new ConflictException('El diagrama está archivado.');
     const nodes = diagram.document.nodes as CanvasNode[];
     const edges = diagram.document.edges as CanvasEdge[];
-    const represented = nodes.filter(node => node?.type === 'resource' && node.hidden !== true);
+    const nodesById = new Map(nodes.map(node => [node.id, node]));
+    if (nodesById.size !== nodes.length) throw new ConflictException('El Canvas contiene identificadores repetidos.');
+    const resolved = new Map<unknown, { visible: boolean; x: number; y: number }>();
+    const resolving = new Set<unknown>();
+    const positionOf = (node: CanvasNode): { visible: boolean; x: number; y: number } => {
+      if (resolved.has(node.id)) return resolved.get(node.id)!;
+      if (resolving.has(node.id)) throw new ConflictException('El Canvas contiene una jerarquía circular.');
+      resolving.add(node.id);
+      const x = node.position?.x; const y = node.position?.y;
+      if (typeof x !== 'number' || !Number.isFinite(x) || typeof y !== 'number' || !Number.isFinite(y) || Math.abs(x) > 1_000_000 || Math.abs(y) > 1_000_000)
+        throw new ConflictException('La posición de un elemento del Canvas no es publicable.');
+      const parent = node.parentId == null ? null : nodesById.get(node.parentId);
+      if (node.parentId != null && !parent) throw new ConflictException('El Canvas contiene un grupo no disponible.');
+      const ancestor = parent ? positionOf(parent) : { visible: true, x: 0, y: 0 };
+      const result = { visible: node.hidden !== true && ancestor.visible, x: x + ancestor.x, y: y + ancestor.y };
+      if (Math.abs(result.x) > 1_000_000 || Math.abs(result.y) > 1_000_000) throw new ConflictException('La posición de un elemento del Canvas no es publicable.');
+      resolving.delete(node.id); resolved.set(node.id, result);
+      return result;
+    };
+    const represented = nodes.filter(node => node?.type === 'resource' && positionOf(node).visible);
     const resourceIds = [...new Set(represented.map(node => node.data?.resourceId))];
     if (resourceIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de recurso no disponible.');
     const ids = resourceIds as string[];
@@ -58,7 +77,7 @@ export class SharePreviewService {
       };
     });
 
-    const visibleNodeIds = new Set(nodes.filter(node => node?.hidden !== true).map(node => node.id));
+    const visibleNodeIds = new Set(nodes.filter(node => positionOf(node).visible).map(node => node.id));
     const relationEdges = edges.filter(edge => edge?.data?.relationId !== undefined && edge.hidden !== true && visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
     const relationIds = [...new Set(relationEdges.map(edge => edge.data?.relationId))];
     if (relationIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de relación no disponible.');
@@ -69,6 +88,10 @@ export class SharePreviewService {
     }).from(relations).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.id, relationKeys))) : [];
     const relationById = new Map(relationRows.filter(row => relationKeys.includes(row.id) && !('archivedAt' in row && row.archivedAt) && !('deletedAt' in row && row.deletedAt)).map(row => [row.id, row]));
     if (relationById.size !== relationKeys.length) throw new ConflictException('Relación del Canvas no disponible.');
+    const evidenceRows = relationKeys.length && ids.length ? await db.select({ id: relationEvidence.id, relationId: relationEvidence.relationId, resourceId: relationEvidence.resourceId,
+      excerpt: relationEvidence.excerpt, note: relationEvidence.note, pageNumber: relationEvidence.pageNumber }).from(relationEvidence)
+      .where(and(inArray(relationEvidence.relationId, relationKeys), inArray(relationEvidence.resourceId, ids))) : [];
+    evidenceRows.sort((a, b) => a.id.localeCompare(b.id));
     const nodeById = new Map(represented.map(node => [node.id, node.data?.resourceId]));
     for (const edge of relationEdges) {
       const relation = relationById.get(edge.data!.relationId as string)!;
@@ -80,10 +103,14 @@ export class SharePreviewService {
         throw new ConflictException('Los extremos de la relación no corresponden al Canvas.');
       }
     }
-    const projection = { diagramName: diagram.name, revision: diagram.revision, resources: publicResources,
+    const publicNodeId = new Map(represented.map((node, index) => [node.id, `r${index}`]));
+    const layout = { nodes: represented.map((node, index) => ({ id: `r${index}`, resourceId: node.data!.resourceId as string, x: positionOf(node).x, y: positionOf(node).y })),
+      edges: relationEdges.map((edge, index) => ({ id: `e${index}`, relationId: edge.data!.relationId as string, source: publicNodeId.get(edge.source)!, target: publicNodeId.get(edge.target)! })) };
+    const projection = { diagramName: diagram.name, revision: diagram.revision, resources: publicResources, layout,
       relations: relationKeys.map(id => { const row = relationById.get(id)!; return {
         id: row.id, sourceResourceId: row.sourceResourceId, targetResourceId: row.targetResourceId,
         direction: row.direction, typeKey: row.typeKey, label: row.label ?? null, explanation: row.explanation ?? null,
+        evidence: evidenceRows.filter(item => item.relationId === id && ids.includes(item.resourceId)).map(item => ({ resourceId: item.resourceId, excerpt: item.excerpt ?? null, note: item.note ?? null, pageNumber: item.pageNumber ?? null })),
       }; }) };
     const fingerprint = createHash('sha256').update(JSON.stringify({ projection, versions: ids.map(id => resourceById.get(id)!.versionId) })).digest('hex');
     return { ...projection, fingerprint, warnings, ready: warnings.length === 0 };

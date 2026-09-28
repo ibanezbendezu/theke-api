@@ -89,7 +89,7 @@ describe('publicación de Compartidos', () => {
     expect(select).not.toHaveBeenCalled();
     const query = vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [{ projection: { ...projection, accountId: 'private', warnings: ['secret'] } }]) })) })) }));
     const publicService = new DiagramShareService({ db: { select: query } } as never, {} as never, { read: vi.fn() } as never);
-    expect(await publicService.getPublic(token)).toEqual({ ...projection, commentsEnabled: undefined });
+    expect(await publicService.getPublic(token)).toEqual({ ...projection, layout: { nodes: [], edges: [] }, commentsEnabled: undefined });
     expect(query).toHaveBeenCalledTimes(1);
     const missing = new DiagramShareService({ db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }) } } as never, {} as never, { read: vi.fn() } as never);
     await expect(missing.getPublic(token)).rejects.toBeInstanceOf(NotFoundException);
