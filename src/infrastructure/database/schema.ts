@@ -1,9 +1,9 @@
-import { isNull } from 'drizzle-orm';
+import { isNotNull, isNull } from 'drizzle-orm';
 import { bigint, boolean, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 export const users = pgTable('users', { id: uuid('id').defaultRandom().primaryKey(), clerkUserId: text('clerk_user_id').notNull().unique(), email: text('email'), displayName: text('display_name'), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const accounts = pgTable('accounts', { id: uuid('id').defaultRandom().primaryKey(), personalOwnerUserId: uuid('personal_owner_user_id').notNull().references(() => users.id).unique(), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const memberships = pgTable('memberships', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), userId: uuid('user_id').notNull().references(() => users.id), role: text('role').$type<'owner' | 'member'>().notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() }, (table) => [uniqueIndex('memberships_account_user_uq').on(table.accountId, table.userId)]);
-export const projectFolders = pgTable('project_folders', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex('project_folders_account_name_uq').on(table.accountId, table.name)]);
+export const projectFolders = pgTable('project_folders', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), name: text('name').notNull(), parentFolderId: uuid('parent_folder_id'), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex('project_folders_account_root_name_uq').on(table.accountId, table.name).where(isNull(table.parentFolderId)), uniqueIndex('project_folders_account_parent_name_uq').on(table.accountId, table.parentFolderId, table.name).where(isNotNull(table.parentFolderId)), index('project_folders_account_parent_idx').on(table.accountId, table.parentFolderId)]);
 export const projects = pgTable('projects', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
@@ -113,9 +113,10 @@ export const libraryFolders = pgTable('library_folders', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
   name: text('name').notNull(),
+  parentFolderId: uuid('parent_folder_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, table => [uniqueIndex('library_folders_account_name_uq').on(table.accountId, table.name)]);
+}, table => [uniqueIndex('library_folders_account_root_name_uq').on(table.accountId, table.name).where(isNull(table.parentFolderId)), uniqueIndex('library_folders_account_parent_name_uq').on(table.accountId, table.parentFolderId, table.name).where(isNotNull(table.parentFolderId)), index('library_folders_account_parent_idx').on(table.accountId, table.parentFolderId)]);
 export const resourcePropertyDefinitions = pgTable('resource_property_definitions', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
