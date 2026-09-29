@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { projectFolders, projects } from '../../infrastructure/database/schema.js';
+import { diagrams, projectFolders, projects } from '../../infrastructure/database/schema.js';
 
 const MAX_NAME_LENGTH = 120;
 const DEFAULT_PAGE_SIZE = 20;
@@ -52,8 +52,12 @@ export class ProjectService {
   async create(accountId: string, input: unknown, collectionFolderId?: string) {
     if (collectionFolderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(collectionFolderId)) throw new BadRequestException('La carpeta no es válida.');
     if (collectionFolderId) { const [folder] = await this.database.db.select({ id: projectFolders.id }).from(projectFolders).where(and(eq(projectFolders.id, collectionFolderId), eq(projectFolders.accountId, accountId))).limit(1); if (!folder) throw new NotFoundException('Carpeta no encontrada.'); }
-    const [project] = await this.database.db.insert(projects).values({ accountId, name: normalizeProjectName(input), collectionFolderId: collectionFolderId || null }).returning();
-    return project!;
+    const name = normalizeProjectName(input);
+    return this.database.db.transaction(async tx => {
+      const [project] = await tx.insert(projects).values({ accountId, name, collectionFolderId: collectionFolderId || null }).returning();
+      await tx.insert(diagrams).values({ projectId: project!.id, name, document: { schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, background: { variant: 'dots', tone: 'default' } } });
+      return project!;
+    });
   }
 
   async get(accountId: string, id: string) {
@@ -63,16 +67,24 @@ export class ProjectService {
   }
 
   async rename(accountId: string, id: string, input: unknown) {
-    const [project] = await this.database.db.update(projects).set({ name: normalizeProjectName(input), updatedAt: new Date() })
-      .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
-    if (!project) throw new NotFoundException('Proyecto no encontrado.');
-    return project;
+    const name = normalizeProjectName(input);
+    return this.database.db.transaction(async tx => {
+      const [project] = await tx.update(projects).set({ name, updatedAt: new Date() })
+        .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
+      if (!project) throw new NotFoundException('Proyecto no encontrado.');
+      await tx.update(diagrams).set({ name, updatedAt: new Date() }).where(and(eq(diagrams.projectId, id), isNull(diagrams.deletedAt)));
+      return project;
+    });
   }
 
   async setArchived(accountId: string, id: string, archived: boolean) {
-    const [project] = await this.database.db.update(projects).set({ archivedAt: archived ? new Date() : null, updatedAt: new Date() })
-      .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
-    if (!project) throw new NotFoundException('Proyecto no encontrado.');
-    return project;
+    return this.database.db.transaction(async tx => {
+      const archivedAt = archived ? new Date() : null;
+      const [project] = await tx.update(projects).set({ archivedAt, updatedAt: new Date() })
+        .where(and(eq(projects.id, id), eq(projects.accountId, accountId), isNull(projects.deletedAt))).returning();
+      if (!project) throw new NotFoundException('Proyecto no encontrado.');
+      await tx.update(diagrams).set({ archivedAt, updatedAt: new Date() }).where(and(eq(diagrams.projectId, id), isNull(diagrams.deletedAt)));
+      return project;
+    });
   }
 }

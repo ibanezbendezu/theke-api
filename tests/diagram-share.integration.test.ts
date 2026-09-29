@@ -35,7 +35,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('Compartidos con PostgreSQL', 
     const [version] = await database.db.insert(resourceVersions).values({ resourceId: file!.id, authorUserId: userId, ordinal: 1, content: '', contentHash: 'file-hash', storageKey: 'private/original', mediaType: 'image/png', byteSize: 8 }).returning();
     await database.db.update(resources).set({ currentVersionId: version!.id }).where(eq(resources.id, file!.id));
     await database.db.insert(resourceAccessibility).values({ resourceId: file!.id, text: 'Imagen de prueba' });
-    const diagram = await diagramsService.create(accountId, projectId, 'Mapa visible'); diagramId = diagram.id;
+    const diagram = await diagramsService.get(accountId, (await diagramsService.list(accountId, projectId, 'active'))[0]!.id); diagramId = diagram.id; await diagramsService.rename(accountId, diagramId, 'Mapa visible');
     const document = { schemaVersion: 1, nodes: [{ id: 'note', type: 'resource', position: { x: 0, y: 0 }, data: { resourceId: note.id } }, { id: 'file', type: 'resource', position: { x: 100, y: 0 }, data: { resourceId: file!.id } }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
     await diagramsService.save(accountId, diagramId, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
     const first = await preview.get(accountId, diagramId); expect(first.ready).toBe(true);

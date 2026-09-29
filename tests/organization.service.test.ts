@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { inArray } from 'drizzle-orm';
 import { Database } from '../src/infrastructure/database/database.js';
-import { accounts, folders, memberships, projectResources, projects, resources, resourceVersions, users } from '../src/infrastructure/database/schema.js';
+import { accounts, diagrams, folders, memberships, projectResources, projects, resources, resourceVersions, users } from '../src/infrastructure/database/schema.js';
 import { AccountService } from '../src/modules/account/account.service.js';
 import { OrganizationService } from '../src/modules/projects/organization.service.js';
 import { ProjectService } from '../src/modules/projects/project.service.js';
@@ -31,6 +31,7 @@ integration('organización de proyectos con PostgreSQL', () => {
         if (projectIds.length) {
           await database.db.delete(projectResources).where(inArray(projectResources.projectId, projectIds));
           await database.db.delete(folders).where(inArray(folders.projectId, projectIds));
+          await database.db.delete(diagrams).where(inArray(diagrams.projectId, projectIds));
           await database.db.delete(projects).where(inArray(projects.id, projectIds));
         }
         if (resourceIds.length) {

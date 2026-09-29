@@ -37,7 +37,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     const another = await projectsService.create(accountId, 'Otro proyecto'); projectIds.push(another.id);
     const first = await notes.create(accountId, userId, { title: 'Origen', content: '' }); resourceIds.push(first.id);
     const second = await notes.create(accountId, userId, { title: 'Destino', content: 'Dato relevante' }); resourceIds.push(second.id);
-    const diagram = await diagramService.create(accountId, project.id, 'Mapa'); diagramIds.push(diagram.id);
+    const diagram = await diagramService.get(accountId, (await diagramService.list(accountId, project.id, 'active'))[0]!.id); diagramIds.push(diagram.id);
     const document = { schemaVersion: 1, nodes: [{ id: 'n1', type: 'resource', position: { x: 0, y: 0 }, data: { resourceId: first.id } }, { id: 'n2', type: 'resource', position: { x: 100, y: 0 }, data: { resourceId: second.id } }, { id: 'visual', type: 'annotation', position: { x: 0, y: 100 }, data: { text: 'Nota' } }], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
     await diagramService.save(accountId, diagram.id, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
     const create = { sourceNodeId: 'n1', targetNodeId: 'n2', direction: 'directed', typeKey: 'supports', expectedRevision: 1, idempotencyKey: crypto.randomUUID() };
@@ -67,7 +67,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     const foreignIdentity = await accountsService.ensureLocalUser({ clerkUserId: `foreign_relation_${crypto.randomUUID()}` }); foreignUserId = foreignIdentity.user.id; foreignAccountId = foreignIdentity.account.id;
     const foreign = await notes.create(foreignAccountId, foreignUserId, { title: 'Ajeno', content: '' }); resourceIds.push(foreign.id);
     await expect(service.update(accountId, userId, result.relationId, { label: '', explanation: '', provenance: '', evidenceStatus: 'confirmed', evidence: [{ resourceId: foreign.id }], expectedRevision: 2 })).rejects.toThrow('no encontrado en esta Cuenta');
-    const secondDiagram = await diagramService.create(accountId, another.id, 'Segundo mapa'); diagramIds.push(secondDiagram.id);
+    const secondDiagram = await diagramService.get(accountId, (await diagramService.list(accountId, another.id, 'active'))[0]!.id); diagramIds.push(secondDiagram.id); await diagramService.rename(accountId, secondDiagram.id, 'Segundo mapa');
     await diagramService.save(accountId, secondDiagram.id, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
     const available = await service.available(accountId, secondDiagram.id);
     expect(available.map(item => item.relationId)).toContain(result.relationId);

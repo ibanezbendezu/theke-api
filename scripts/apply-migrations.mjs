@@ -24,6 +24,8 @@ const migrations = [
   ['diagram_shares.comments_enabled', '../drizzle/0019_diagram_share_management.sql'],
   ['library_folders', '../drizzle/0020_collection_folders.sql'],
   ['project_folders', '../drizzle/0020_collection_folders.sql'],
+  ['diagrams_project_live_uq', '../drizzle/0021_one_map_per_project.sql'],
+  ['project_resources_resource_idx', '../drizzle/0022_map_resource_memberships.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

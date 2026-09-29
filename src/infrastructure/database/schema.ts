@@ -26,7 +26,7 @@ export const diagrams = pgTable('diagrams', {
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-});
+}, table => [uniqueIndex('diagrams_project_live_uq').on(table.projectId).where(isNull(table.deletedAt))]);
 export const diagramRevisions = pgTable('diagram_revisions', {
   id: uuid('id').defaultRandom().primaryKey(),
   diagramId: uuid('diagram_id').notNull().references(() => diagrams.id),
@@ -142,7 +142,7 @@ export const projectResources = pgTable('project_resources', {
   folderId: uuid('folder_id').references(() => folders.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [uniqueIndex('project_resources_project_resource_uq').on(table.projectId, table.resourceId)]);
+}, (table) => [uniqueIndex('project_resources_project_resource_uq').on(table.projectId, table.resourceId), index('project_resources_resource_idx').on(table.resourceId)]);
 export const relationTypes = pgTable('relation_types', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
