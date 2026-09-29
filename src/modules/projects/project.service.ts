@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { projects } from '../../infrastructure/database/schema.js';
+import { projectFolders, projects } from '../../infrastructure/database/schema.js';
 
 const MAX_NAME_LENGTH = 120;
 const DEFAULT_PAGE_SIZE = 20;
@@ -32,7 +32,9 @@ function decodeCursor(value?: string): [Date, string] | undefined {
 export class ProjectService {
   constructor(@Inject(Database) private readonly database: Database) {}
 
-  async list(accountId: string, status: 'active' | 'archived', cursorValue?: string, requestedLimit?: number) {
+  async list(accountId: string, status: 'active' | 'archived', cursorValue?: string, requestedLimit?: number, collectionFolderId?: string) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (collectionFolderId && collectionFolderId !== 'root' && !uuid.test(collectionFolderId)) throw new BadRequestException('El filtro de carpeta no es válido.');
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.trunc(requestedLimit!), 1), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
     const cursor = decodeCursor(cursorValue);
     const visibility = status === 'archived' ? isNotNull(projects.archivedAt) : isNull(projects.archivedAt);
@@ -40,15 +42,17 @@ export class ProjectService {
       ? or(lt(projects.createdAt, cursor[0]), and(eq(projects.createdAt, cursor[0]), lt(projects.id, cursor[1])))
       : undefined;
     const rows = await this.database.db.select().from(projects)
-      .where(and(eq(projects.accountId, accountId), isNull(projects.deletedAt), visibility, page))
+      .where(and(eq(projects.accountId, accountId), isNull(projects.deletedAt), visibility, collectionFolderId === 'root' ? isNull(projects.collectionFolderId) : collectionFolderId ? eq(projects.collectionFolderId, collectionFolderId) : undefined, page))
       .orderBy(desc(projects.createdAt), desc(projects.id)).limit(limit + 1);
     const hasMore = rows.length > limit;
     const data = rows.slice(0, limit);
     return { data, meta: { nextCursor: hasMore ? encodeCursor(data[data.length - 1]!) : null } };
   }
 
-  async create(accountId: string, input: unknown) {
-    const [project] = await this.database.db.insert(projects).values({ accountId, name: normalizeProjectName(input) }).returning();
+  async create(accountId: string, input: unknown, collectionFolderId?: string) {
+    if (collectionFolderId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(collectionFolderId)) throw new BadRequestException('La carpeta no es válida.');
+    if (collectionFolderId) { const [folder] = await this.database.db.select({ id: projectFolders.id }).from(projectFolders).where(and(eq(projectFolders.id, collectionFolderId), eq(projectFolders.accountId, accountId))).limit(1); if (!folder) throw new NotFoundException('Carpeta no encontrada.'); }
+    const [project] = await this.database.db.insert(projects).values({ accountId, name: normalizeProjectName(input), collectionFolderId: collectionFolderId || null }).returning();
     return project!;
   }
 

@@ -7,6 +7,8 @@ import { MeController } from './interfaces/http/me.controller.js';
 import { ClerkWebhookController } from './interfaces/http/clerk-webhook.controller.js';
 import { ProjectsController } from './interfaces/http/projects.controller.js';
 import { ProjectService } from './modules/projects/project.service.js';
+import { ProjectFolderService } from './modules/projects/project-folder.service.js';
+import { ProjectFoldersController } from './interfaces/http/project-folders.controller.js';
 import { NotesController } from './interfaces/http/notes.controller.js';
 import { NoteService } from './modules/resources/note.service.js';
 import { OrganizationController } from './interfaces/http/organization.controller.js';
@@ -21,6 +23,8 @@ import { ClamAvScanner } from './infrastructure/security/clamav.scanner.js';
 import { MALWARE_SCANNER, UPLOAD_STORAGE } from './modules/uploads/upload.ports.js';
 import { ResourcesController } from './interfaces/http/resources.controller.js';
 import { ResourceService } from './modules/resources/resource.service.js';
+import { LibraryFolderService } from './modules/resources/library-folder.service.js';
+import { LibraryFoldersController } from './interfaces/http/library-folders.controller.js';
 import { ResourceRepository } from './modules/resources/resource.repository.js';
 import { ResourceKnowledgeRepository } from './modules/resources/resource-knowledge.repository.js';
 import { ResourceKnowledgeService } from './modules/resources/resource-knowledge.service.js';
@@ -42,4 +46,4 @@ import { AiController } from './interfaces/http/ai.controller.js';
 import { AiService } from './modules/ai/ai.service.js';
 import { RelationSuggestionService } from './modules/ai/relation-suggestion.service.js';
 import { ScopePreparationService } from './modules/ai/scope-preparation.service.js';
-@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, NotesController, OrganizationController, UploadsController, ResourcesController, LinksController, ImpactsController, DiagramsController, PublicSharesController, RelationsController, AiController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, DiagramService, SharePreviewService, DiagramShareService, RelationService, NoteService, ResourceService, ResourceRepository, ResourceKnowledgeRepository, ResourceKnowledgeService, LinkService, LinkRepository, LinkProcessor, LinkMetadataFetcher, ImpactService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, AiService, RelationSuggestionService, ScopePreparationService, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}
+@Module({ controllers: [HealthController, MeController, ClerkWebhookController, ProjectsController, ProjectFoldersController, NotesController, OrganizationController, UploadsController, ResourcesController, LibraryFoldersController, LinksController, ImpactsController, DiagramsController, PublicSharesController, RelationsController, AiController], providers: [Database, ClerkAuthGuard, AccountService, ProjectService, ProjectFolderService, DiagramService, SharePreviewService, DiagramShareService, RelationService, NoteService, ResourceService, LibraryFolderService, ResourceRepository, ResourceKnowledgeRepository, ResourceKnowledgeService, LinkService, LinkRepository, LinkProcessor, LinkMetadataFetcher, ImpactService, OrganizationService, UploadService, UploadProcessor, UploadRepository, UploadQueue, S3UploadStorage, ClamAvScanner, AiService, RelationSuggestionService, ScopePreparationService, { provide: UPLOAD_STORAGE, useExisting: S3UploadStorage }, { provide: MALWARE_SCANNER, useExisting: ClamAvScanner }] }) export class AppModule {}

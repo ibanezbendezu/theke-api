@@ -10,14 +10,16 @@ describe('filtros de recursos', () => {
     const repository = { list: vi.fn().mockResolvedValue([row(1)]), get: vi.fn(), setAccessibility: vi.fn() };
     const service = new ResourceService(repository as never, {} as never);
     await service.list('account-1', { query: '  fuente  ', type: 'link', projectId, folderId });
-    expect(repository.list).toHaveBeenCalledWith('account-1', { query: 'fuente', type: 'link', status: 'active', projectId, folderId, cursor: undefined });
+    expect(repository.list).toHaveBeenCalledWith('account-1', { query: 'fuente', type: 'link', status: 'active', projectId, folderId, libraryFolderId: undefined, cursor: undefined });
   });
 
   it('rechaza filtros inválidos', async () => {
-    const service = new ResourceService({} as never, {} as never);
+    const service = new ResourceService({ list: vi.fn().mockResolvedValue([]) } as never, {} as never);
     await expect(service.list('account-1', { type: 'video' })).rejects.toThrow('tipo');
     await expect(service.list('account-1', { folderId })).rejects.toThrow('proyecto');
     await expect(service.list('account-1', { projectId: 'no-uuid' })).rejects.toThrow('filtro');
+    await expect(service.list('account-1', { libraryFolderId: 'no-uuid' })).rejects.toThrow('filtro');
+    await expect(service.list('account-1', { libraryFolderId: 'root' })).resolves.toBeDefined();
   });
 
   it('genera y recupera un cursor estable por fecha e identificador', async () => {

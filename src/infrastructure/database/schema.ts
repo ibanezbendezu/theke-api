@@ -3,10 +3,12 @@ import { bigint, boolean, index, integer, jsonb, numeric, pgTable, text, timesta
 export const users = pgTable('users', { id: uuid('id').defaultRandom().primaryKey(), clerkUserId: text('clerk_user_id').notNull().unique(), email: text('email'), displayName: text('display_name'), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const accounts = pgTable('accounts', { id: uuid('id').defaultRandom().primaryKey(), personalOwnerUserId: uuid('personal_owner_user_id').notNull().references(() => users.id).unique(), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() });
 export const memberships = pgTable('memberships', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), userId: uuid('user_id').notNull().references(() => users.id), role: text('role').$type<'owner' | 'member'>().notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull() }, (table) => [uniqueIndex('memberships_account_user_uq').on(table.accountId, table.userId)]);
+export const projectFolders = pgTable('project_folders', { id: uuid('id').defaultRandom().primaryKey(), accountId: uuid('account_id').notNull().references(() => accounts.id), name: text('name').notNull(), createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull() }, table => [uniqueIndex('project_folders_account_name_uq').on(table.accountId, table.name)]);
 export const projects = pgTable('projects', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
   name: text('name').notNull(),
+  collectionFolderId: uuid('collection_folder_id').references(() => projectFolders.id),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
@@ -68,6 +70,7 @@ export const resources = pgTable('resources', {
   properties: jsonb('properties').$type<Record<string, string | number | boolean | string[]>>().default({}).notNull(),
   creationMethod: text('creation_method').$type<'manual'>().notNull(),
   currentVersionId: uuid('current_version_id'),
+  libraryFolderId: uuid('library_folder_id').references(() => libraryFolders.id),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   purgeAfter: timestamp('purge_after', { withTimezone: true }),
@@ -106,6 +109,13 @@ export const folders = pgTable('folders', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export const libraryFolders = pgTable('library_folders', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('library_folders_account_name_uq').on(table.accountId, table.name)]);
 export const resourcePropertyDefinitions = pgTable('resource_property_definitions', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

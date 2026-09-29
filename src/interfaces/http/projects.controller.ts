@@ -15,13 +15,13 @@ export class ProjectsController {
   private async accountId(auth: AuthContextValue) { return (await this.accounts.ensureLocalUser(auth)).account.id; }
 
   @Get()
-  async list(@AuthContext() auth: AuthContextValue, @Query('status') status?: string, @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
-    return this.projects.list(await this.accountId(auth), status === 'archived' ? 'archived' : 'active', cursor, limit ? Number(limit) : undefined);
+  async list(@AuthContext() auth: AuthContextValue, @Query('status') status?: string, @Query('cursor') cursor?: string, @Query('limit') limit?: string, @Query('collectionFolderId') collectionFolderId?: string) {
+    return this.projects.list(await this.accountId(auth), status === 'archived' ? 'archived' : 'active', cursor, limit ? Number(limit) : undefined, collectionFolderId);
   }
 
   @Post()
-  async create(@AuthContext() auth: AuthContextValue, @Body() body: { name?: unknown }) {
-    return { data: await this.projects.create(await this.accountId(auth), body?.name) };
+  async create(@AuthContext() auth: AuthContextValue, @Body() body: { name?: unknown; collectionFolderId?: string }) {
+    return { data: await this.projects.create(await this.accountId(auth), body?.name, body?.collectionFolderId) };
   }
 
   @Get(':id')
