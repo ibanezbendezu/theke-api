@@ -1227,6 +1227,19 @@
             "$ref": "#/components/responses/NotFound"
           }
         }
+      },
+      "patch": {
+        "operationId": "renameFileResource",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenameFileResourceInput" } } } },
+        "responses": {
+          "200": { "description": "Archivo renombrado", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResourceResponse" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "El archivo cambió desde que se abrió", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } }
+        }
       }
     },
     "/v1/resources/{id}/access": {
@@ -2569,6 +2582,7 @@
           "description": { "type": ["string", "null"], "maxLength": 1000 }
         }
       },
+      "RenameFileResourceInput": { "type": "object", "required": ["title", "expectedUpdatedAt"], "properties": { "title": { "type": "string", "minLength": 1, "maxLength": 160 }, "expectedUpdatedAt": { "type": "string", "format": "date-time" } } },
       "ResourcePropertyDefinition": { "type": "object", "required": ["key", "type"], "properties": { "key": { "type": "string" }, "type": { "type": "string", "enum": ["text", "list", "number", "checkbox", "date", "datetime"] } } },
       "ResourcePropertyInput": { "type": "object", "required": ["key", "type", "value"], "properties": { "key": { "type": "string", "maxLength": 40 }, "type": { "type": "string", "enum": ["text", "list", "number", "checkbox", "date", "datetime"] }, "value": { "oneOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }, { "type": "array", "items": { "type": "string" } }] } } },
       "UpdateResourceMetadataInput": { "type": "object", "required": ["aliases", "tags", "properties", "expectedUpdatedAt"], "properties": { "aliases": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 80 } }, "tags": { "type": "array", "maxItems": 30, "items": { "type": "string", "maxLength": 80 } }, "properties": { "type": "array", "maxItems": 30, "items": { "$ref": "#/components/schemas/ResourcePropertyInput" } }, "expectedUpdatedAt": { "type": "string", "format": "date-time" } } },

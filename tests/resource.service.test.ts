@@ -9,6 +9,24 @@ import { NoteService } from '../src/modules/resources/note.service.js';
 import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 import type { UploadStorage } from '../src/modules/uploads/upload.ports.js';
 
+describe('renombrar archivos', () => {
+  const accountId = 'owner'; const fileId = '11111111-1111-4111-8111-111111111111'; const updatedAt = new Date('2026-09-29T12:00:00.000Z');
+  const file = { id: fileId, type: 'file', title: 'original.pdf', updatedAt, mediaType: 'application/pdf', byteSize: 1024, storageKey: 'clean/file', archivedAt: null };
+  const repository = { get: vi.fn(async (account: string) => account === accountId ? file : undefined), renameFile: vi.fn(async (_account: string, _id: string, title: string) => ({ ...file, title, updatedAt: new Date() })) };
+  const service = new ResourceService(repository as unknown as ResourceRepository, {} as UploadStorage);
+  it('valida el nombre y la versión antes de escribir', async () => {
+    await expect(service.renameFile(accountId, fileId, '  ', updatedAt.toISOString())).rejects.toThrow();
+    await expect(service.renameFile(accountId, fileId, 'otro.pdf', '2026-09-28T12:00:00.000Z')).rejects.toThrow();
+    await expect(service.renameFile('other', fileId, 'otro.pdf', updatedAt.toISOString())).rejects.toThrow();
+    expect(repository.renameFile).not.toHaveBeenCalled();
+  });
+  it('cambia solo el título del archivo de la cuenta', async () => {
+    const renamed = await service.renameFile(accountId, fileId, ' nuevo.pdf ', updatedAt.toISOString());
+    expect(renamed.title).toBe('nuevo.pdf');
+    expect(repository.renameFile).toHaveBeenCalledWith(accountId, fileId, 'nuevo.pdf', updatedAt);
+  });
+});
+
 const integration = describe.runIf(Boolean(process.env.DATABASE_URL));
 integration('consulta de recursos con PostgreSQL', () => {
   const database = new Database(); const accountsService = new AccountService(database); const notes = new NoteService(database, new ResourceKnowledgeRepository(database)); const repository = new ResourceRepository(database);
