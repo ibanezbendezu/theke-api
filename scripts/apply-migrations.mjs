@@ -28,6 +28,7 @@ const migrations = [
   ['project_resources_resource_idx', '../drizzle/0022_map_resource_memberships.sql'],
   ['project_folders.parent_folder_id', '../drizzle/0023_nested_collection_folders.sql'],
   ['project_folders_account_root_name_uq', '../drizzle/0024_nested_folder_names.sql'],
+  ['public_share_comments', '../drizzle/0025_public_share_comments.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

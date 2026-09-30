@@ -13,7 +13,7 @@ const adapter = new FastifyAdapter({ logger: { redact: ['req.headers.authorizati
     url: request.url.replace(/(\/v1\/public\/shares\/)[^/?]+/g, '$1[redacted]') }) } },
 genReqId: (request: IncomingMessage) => String(request.headers['x-request-id'] ?? crypto.randomUUID()) });
 const app = await NestFactory.create<NestFastifyApplication>(AppModule, adapter, { rawBody: true });
-await app.register(cors, { origin: parseEnvironmentList('WEB_ORIGINS'), methods: ['GET', 'POST', 'PATCH', 'PUT', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id'] });
+await app.register(cors, { origin: parseEnvironmentList('WEB_ORIGINS'), credentials: true, methods: ['GET', 'POST', 'PATCH', 'PUT', 'OPTIONS'], allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-CSRF-Token'] });
 app.getHttpAdapter().getInstance().addHook('onRequest', (request, reply, done) => {
   reply.header('x-request-id', request.id);
   done();

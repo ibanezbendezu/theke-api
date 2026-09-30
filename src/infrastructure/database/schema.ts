@@ -58,6 +58,17 @@ export const diagramShareEvents = pgTable('diagram_share_events', {
     action: text('action').$type<'published' | 'retried' | 'refreshed' | 'comments_changed' | 'revoked'>().notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export const publicShareComments = pgTable('public_share_comments', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  shareId: uuid('share_id').notNull().references(() => diagramShares.id),
+  ownerHash: text('owner_hash').notNull(),
+  ipHash: text('ip_hash').notNull(),
+  displayName: text('display_name').notNull(),
+  content: text('content').notNull(),
+  anchor: jsonb('anchor').$type<{ type: 'diagram' }>().notNull().default({ type: 'diagram' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [index('public_share_comments_share_created_idx').on(table.shareId, table.createdAt), index('public_share_comments_owner_idx').on(table.shareId, table.ownerHash)]);
 export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
