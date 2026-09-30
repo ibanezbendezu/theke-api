@@ -2,13 +2,18 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { relationEvidence, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { folders, projectResources, relationEvidence, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 import { DiagramService } from './diagram.service.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const supportedMedia = new Set(['application/pdf', 'text/plain', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm']);
-type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; data?: { resourceId?: unknown } };
-type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; data?: { relationId?: unknown } };
+type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; width?: unknown; height?: unknown; data?: Record<string, unknown> };
+type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; sourceHandle?: unknown; targetHandle?: unknown; data?: Record<string, unknown> };
+const nodeTypes = new Set(['resource', 'folder', 'container', 'annotation', 'text', 'shape', 'link', 'media', 'document', 'audio']);
+const text = (value: unknown, max = 500) => typeof value === 'string' ? value.slice(0, max) : undefined;
+const number = (value: unknown, min: number, max: number) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : undefined;
+const color = (value: unknown) => typeof value === 'string' && (/^#[0-9a-f]{3,8}$/i.test(value) || /^var\(--color-[a-z-]+\)$/.test(value)) ? value : undefined;
+const url = (value: unknown) => { if (typeof value !== 'string') return undefined; try { const parsed = new URL(value); return ['https:', 'http:'].includes(parsed.protocol) ? parsed.href.slice(0, 2048) : undefined; } catch { return undefined; } };
 
 @Injectable()
 export class SharePreviewService {
@@ -38,7 +43,9 @@ export class SharePreviewService {
       resolving.delete(node.id); resolved.set(node.id, result);
       return result;
     };
-    const represented = nodes.filter(node => node?.type === 'resource' && positionOf(node).visible);
+    const visibleNodes = nodes.filter(node => positionOf(node).visible);
+    if (visibleNodes.some(node => !nodeTypes.has(String(node.type)))) throw new ConflictException('El Canvas contiene un elemento sin vista pública compatible.');
+    const represented = visibleNodes.filter(node => node.type === 'resource');
     const resourceIds = [...new Set(represented.map(node => node.data?.resourceId))];
     if (resourceIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de recurso no disponible.');
     const ids = resourceIds as string[];
@@ -52,6 +59,15 @@ export class SharePreviewService {
       .where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), isNull(resources.archivedAt), inArray(resources.id, ids))) : [];
     const resourceById = new Map(resourceRows.filter(row => ids.includes(row.id) && !('archivedAt' in row && row.archivedAt) && !('deletedAt' in row && row.deletedAt)).map(row => [row.id, row]));
     if (resourceById.size !== ids.length) throw new ConflictException('Recurso del Canvas no disponible.');
+    const folderIds = [...new Set(visibleNodes.filter(node => node.type === 'folder').map(node => node.data?.folderId))];
+    if (folderIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Carpeta del Canvas no disponible.');
+    const folderRows = folderIds.length ? await db.select({ id: folders.id, name: folders.name }).from(folders)
+      .where(and(eq(folders.projectId, diagram.projectId), isNull(folders.archivedAt), inArray(folders.id, folderIds as string[]))) : [];
+    const folderById = new Map(folderRows.map(row => [row.id, row]));
+    if (folderById.size !== folderIds.length) throw new ConflictException('Carpeta del Canvas no disponible.');
+    const folderCounts = folderIds.length ? await db.select({ folderId: projectResources.folderId }).from(projectResources)
+      .innerJoin(resources, eq(resources.id, projectResources.resourceId))
+      .where(and(eq(projectResources.projectId, diagram.projectId), inArray(projectResources.folderId, folderIds as string[]), isNull(resources.archivedAt), isNull(resources.deletedAt))) : [];
 
     const warnings: { resourceId: string; field: string; message: string }[] = [];
     const publicResources = ids.map(id => {
@@ -103,9 +119,46 @@ export class SharePreviewService {
         throw new ConflictException('Los extremos de la relación no corresponden al Canvas.');
       }
     }
-    const publicNodeId = new Map(represented.map((node, index) => [node.id, `r${index}`]));
-    const layout = { nodes: represented.map((node, index) => ({ id: `r${index}`, resourceId: node.data!.resourceId as string, x: positionOf(node).x, y: positionOf(node).y })),
-      edges: relationEdges.map((edge, index) => ({ id: `e${index}`, relationId: edge.data!.relationId as string, source: publicNodeId.get(edge.source)!, target: publicNodeId.get(edge.target)! })) };
+    const publicNodeId = new Map(visibleNodes.map((node, index) => [node.id, `n${index}`]));
+    const clean = (value: Record<string, unknown>) => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+    const backgroundVariant = diagram.document.background?.variant;
+    const layout = {
+      background: {
+        variant: backgroundVariant === 'plain' || backgroundVariant === 'dots' || backgroundVariant === 'grid' ? backgroundVariant : 'dots',
+        tone: diagram.document.background?.tone === 'surface' ? 'surface' : 'default',
+      },
+      nodes: visibleNodes.map((node, index) => {
+        const data = node.data ?? {}; const type = String(node.type);
+        const common = { id: `n${index}`, type, x: positionOf(node).x, y: positionOf(node).y,
+          width: number(node.width, 20, 5000), height: number(node.height, 4, 5000),
+          caption: text(data.caption, 160), accent: ['default', 'primary', 'muted'].includes(String(data.accent)) ? data.accent : undefined };
+        const specific = type === 'resource' ? { resourceId: data.resourceId } : type === 'folder' ? {
+          folderName: folderById.get(data.folderId as string)?.name,
+          folderCount: folderCounts.filter(row => row.folderId === data.folderId).length,
+        } : type === 'container' ? { label: text(data.label, 160), color: color(data.color) } : type === 'annotation' ? {
+          annotationKind: ['text', 'shape', 'line'].includes(String(data.kind)) ? data.kind : 'text', text: text(data.text, 2000),
+          fontSize: number(data.fontSize, 8, 96), align: ['left', 'center', 'right'].includes(String(data.align)) ? data.align : undefined,
+          shape: ['rectangle', 'ellipse'].includes(String(data.shape)) ? data.shape : undefined,
+          color: ['default', 'primary', 'muted'].includes(String(data.color)) ? data.color : undefined,
+          thickness: number(data.thickness, 1, 40), dash: ['solid', 'dashed'].includes(String(data.dash)) ? data.dash : undefined,
+          x1: number(data.x1, 0, 100), y1: number(data.y1, 0, 100), x2: number(data.x2, 0, 100), y2: number(data.y2, 0, 100),
+        } : type === 'text' ? { text: text(data.text, 2000) } : type === 'shape' ? {
+          shapeType: ['rectangle', 'circle', 'polygon', 'line'].includes(String(data.shapeType)) ? data.shapeType : 'rectangle',
+          sides: number(data.sides, 3, 12), borderRadius: number(data.borderRadius, 0, 100), color: color(data.color),
+        } : type === 'link' ? { title: text(data.title, 160), description: text(data.description, 500), url: url(data.url), imageUrl: url(data.imageUrl) }
+          : type === 'media' ? { label: text(data.label, 160), mediaType: ['image', 'video'].includes(String(data.type)) ? data.type : 'image', url: url(data.url) }
+            : type === 'document' ? { filename: text(data.filename, 160), extension: text(data.extension, 20), size: text(data.size, 40) }
+              : type === 'audio' ? { title: text(data.title, 160), mediaType: ['music', 'voice'].includes(String(data.type)) ? data.type : 'music', url: url(data.url) } : {};
+        return clean({ ...common, ...specific });
+      }),
+      edges: edges.filter(edge => edge.hidden !== true && publicNodeId.has(edge.source) && publicNodeId.has(edge.target)).map((edge, index) => clean({
+        id: `e${index}`, source: publicNodeId.get(edge.source), target: publicNodeId.get(edge.target),
+        relationId: edge.data?.relationId, label: text(edge.data?.label, 160),
+        offsetX: number((edge.data?.offset as { x?: unknown } | undefined)?.x, -10000, 10000),
+        offsetY: number((edge.data?.offset as { y?: unknown } | undefined)?.y, -10000, 10000),
+        sourceHandle: text(edge.sourceHandle, 40), targetHandle: text(edge.targetHandle, 40),
+      })),
+    };
     const projection = { diagramName: diagram.name, revision: diagram.revision, resources: publicResources, layout,
       relations: relationKeys.map(id => { const row = relationById.get(id)!; return {
         id: row.id, sourceResourceId: row.sourceResourceId, targetResourceId: row.targetResourceId,

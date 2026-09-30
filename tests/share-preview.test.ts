@@ -8,11 +8,13 @@ const relationId = '33333333-3333-4333-8333-333333333333';
 const note = { id: resourceId, versionId: 'note-version-1', type: 'note', title: 'Nota', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null, properties: { secret: 'private' }, storageKey: null };
 const file = { id: otherId, versionId: 'file-version-1', type: 'file', title: 'Imagen', description: null, content: '', url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png', storageKey: 'private/file' };
 const relation = { id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', provenance: 'private' };
-const nodes = [{ id: 'n1', type: 'resource', position: { x: 10, y: 20 }, data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', position: { x: 200, y: 80 }, data: { resourceId: otherId } }, { id: 'folder', type: 'folder', position: { x: 300, y: 0 }, data: { name: 'Private folder' } }];
+const nodes = [{ id: 'n1', type: 'resource', position: { x: 10, y: 20 }, data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', position: { x: 200, y: 80 }, data: { resourceId: otherId } }, { id: 'folder', type: 'container', position: { x: 300, y: 0 }, width: 400, height: 260, data: { label: 'Grupo visible', privateReference: 'hidden' } }];
 const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { relationId, privateReference: 'hidden' } }];
 
-function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; relationRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
-  const where = vi.fn().mockImplementationOnce(async () => input.resourceRows ?? [note, file]).mockImplementationOnce(async () => input.relationRows ?? [relation]).mockImplementationOnce(async () => input.evidenceRows ?? []);
+function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; folderRows?: object[]; folderCountRows?: object[]; relationRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
+  const responses = [input.resourceRows ?? [note, file], ...(input.folderRows ? [input.folderRows, input.folderCountRows ?? []] : []), input.relationRows ?? [relation], input.evidenceRows ?? []];
+  const where = vi.fn();
+  for (const response of responses) where.mockImplementationOnce(async () => response);
   const select = vi.fn(() => {
     const chain: Record<string, unknown> = {};
     for (const key of ['from', 'innerJoin', 'leftJoin']) chain[key] = vi.fn(() => chain);
@@ -42,7 +44,7 @@ describe('preview privado de diagramas', () => {
       { id: resourceId, title: 'Nota', type: 'note', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null },
       { id: otherId, title: 'Imagen', type: 'file', description: null, content: null, url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png' },
     ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', evidence: [] }],
-      layout: { nodes: [{ id: 'r0', resourceId, x: 10, y: 20 }, { id: 'r1', resourceId: otherId, x: 200, y: 80 }], edges: [{ id: 'e0', relationId, source: 'r0', target: 'r1' }] },
+      layout: { background: { variant: 'grid', tone: 'default' }, nodes: [{ id: 'n0', type: 'resource', resourceId, x: 10, y: 20 }, { id: 'n1', type: 'resource', resourceId: otherId, x: 200, y: 80 }, { id: 'n2', type: 'container', x: 300, y: 0, width: 400, height: 260, label: 'Grupo visible' }], edges: [{ id: 'e0', relationId, source: 'n0', target: 'n1' }] },
       fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(JSON.stringify(preview)).not.toMatch(/private|secret|storageKey|versionId|projectId|folder|viewport|Unrelated|provenance/);
     expect(select).toHaveBeenCalledTimes(3);
@@ -83,7 +85,7 @@ describe('preview privado de diagramas', () => {
 
   it('permite diagramas vacíos sin consultar registros adicionales', async () => {
     const { service, database } = setup({ nodes: [], edges: [] });
-    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], layout: { nodes: [], edges: [] }, fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
+    expect(await service.get('owner', 'diagram')).toEqual({ diagramName: 'Mapa', revision: 7, resources: [], relations: [], layout: { background: { variant: 'grid', tone: 'default' }, nodes: [], edges: [] }, fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(database.db.select).not.toHaveBeenCalled();
   });
 
@@ -111,9 +113,28 @@ describe('preview privado de diagramas', () => {
       { id: 'b', relationId, resourceId: '44444444-4444-4444-8444-444444444444', excerpt: 'Cita privada' },
     ] });
     const preview = await service.get('owner', 'diagram');
-    expect(preview.layout.nodes[1]).toEqual({ id: 'r1', resourceId: otherId, x: 320, y: 30 });
+    expect(preview.layout.nodes[1]).toEqual({ id: 'n1', type: 'resource', resourceId: otherId, x: 320, y: 30 });
     expect(preview.relations[0]?.evidence).toEqual([{ resourceId, excerpt: 'Cita visible', note: 'Página revisada', pageNumber: 2 }]);
     expect(JSON.stringify(preview)).not.toContain('Cita privada');
+  });
+
+  it('publica carpetas y anotaciones visibles con campos permitidos', async () => {
+    const folderId = '44444444-4444-4444-8444-444444444444';
+    const folderNode = { id: 'folder-1', type: 'folder', position: { x: 40, y: 50 }, width: 310, height: 120, data: { folderId, caption: 'Fuentes', privatePath: '/secret' } };
+    const annotation = { id: 'annotation-1', type: 'annotation', position: { x: 60, y: 90 }, data: { kind: 'text', text: 'Lectura visible', privateNote: 'oculta' } };
+    const { service } = setup({ nodes: [nodes[0], folderNode, annotation], edges: [], folderRows: [{ id: folderId, name: 'Documentos' }], folderCountRows: [{ folderId }] });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.layout.nodes[1]).toEqual({ id: 'n1', type: 'folder', x: 40, y: 50, width: 310, height: 120, folderName: 'Documentos', folderCount: 1, caption: 'Fuentes' });
+    expect(preview.layout.nodes[2]).toEqual({ id: 'n2', type: 'annotation', x: 60, y: 90, annotationKind: 'text', text: 'Lectura visible' });
+    expect(JSON.stringify(preview)).not.toMatch(/privatePath|privateNote|secret|oculta/);
+  });
+
+  it('cambia la huella al editar una anotación y rechaza elementos visuales desconocidos', async () => {
+    const annotation = { id: 'a1', type: 'annotation', position: { x: 1, y: 2 }, data: { kind: 'text', text: 'Antes' } };
+    const first = await setup({ nodes: [nodes[0], annotation], edges: [] }).service.get('owner', 'diagram');
+    const second = await setup({ nodes: [nodes[0], { ...annotation, data: { kind: 'text', text: 'Después' } }], edges: [] }).service.get('owner', 'diagram');
+    expect(first.fingerprint).not.toBe(second.fingerprint);
+    await expect(setup({ nodes: [{ id: 'unknown', type: 'private-widget', position: { x: 0, y: 0 }, data: { secret: true } }], edges: [] }).service.get('owner', 'diagram')).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('oculta recursos contenidos en un grupo oculto', async () => {

@@ -43,7 +43,7 @@ export const diagramShares = pgTable('diagram_shares', {
   idempotencyKey: text('idempotency_key').notNull(),
   fingerprint: text('fingerprint').notNull(),
     projection: jsonb('projection').$type<{ diagramName: string; revision: number; resources: unknown[]; relations: unknown[];
-      layout?: { nodes: { id: string; resourceId: string; x: number; y: number }[]; edges: { id: string; relationId: string; source: string; target: string }[] } }>().notNull(),
+      layout?: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[]; background?: { variant: string; tone: string } } }>().notNull(),
   mediaManifest: jsonb('media_manifest').$type<Record<string, { versionId: string; storageKey: string; mediaType: string; filename: string }>>().notNull().default({}),
   commentsEnabled: boolean('comments_enabled').notNull().default(true),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
