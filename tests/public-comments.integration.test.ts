@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { Database } from '../src/infrastructure/database/database.js';
-import { accounts, diagramShares, diagrams, projects, publicShareComments, users } from '../src/infrastructure/database/schema.js';
+import { accounts, diagramShares, diagrams, projects, publicShareComments, publicShareCommentMutations, users } from '../src/infrastructure/database/schema.js';
 import { PublicCommentsService } from '../src/modules/diagrams/public-comments.service.js';
 
 describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comentarios con PostgreSQL', () => {
@@ -14,7 +14,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
   const cookieValue = (setCookie: string) => setCookie.split(';')[0]!;
 
   afterAll(async () => {
-    if (shareIds.length) { await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
+    if (shareIds.length) { await database.db.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.shareId, shareIds)); await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
     if (diagramIds.length) await database.db.delete(diagrams).where(inArray(diagrams.id, diagramIds));
     if (projectIds.length) await database.db.delete(projects).where(inArray(projects.id, projectIds));
     if (accountId) await database.db.delete(accounts).where(eq(accounts.id, accountId));
@@ -34,23 +34,29 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     }
     const [firstToken, secondToken] = tokens as [string, string];
     expect(await comments.list(firstToken)).toMatchObject({ identity: null, csrfToken: null, comments: [] });
-    await expect(comments.create(firstToken, { displayName: ' ', content: 'Borrador' }, undefined, undefined, '127.0.0.1')).rejects.toMatchObject({ status: 400 });
+    await expect(comments.create(firstToken, { content: ' ' }, undefined, undefined, '127.0.0.1')).rejects.toMatchObject({ status: 400 });
     expect((await comments.list(firstToken)).comments).toHaveLength(0);
-    const first = await comments.create(firstToken, { displayName: '  Ana   Sol  ', content: 'Primero' }, undefined, undefined, '127.0.0.1');
-    expect(first.comment).toMatchObject({ displayName: 'Ana Sol', content: 'Primero', editable: true });
+    const first = await comments.create(firstToken, { content: 'Primero' }, undefined, undefined, '127.0.0.1');
+    expect(first.comment).toMatchObject({ displayName: expect.stringMatching(/^[A-Z][a-z]+ [a-z]+$/), content: 'Primero', editable: true });
     expect(first.session).toBeTruthy();
     const cookie = cookieValue(comments.cookieHeader(first.session!));
     expect(comments.cookieHeader(first.session!)).toContain('Max-Age=2592000; Path=/; Secure; HttpOnly; SameSite=Lax');
     const recognized = await comments.list(firstToken, cookie);
-    expect(recognized.identity).toEqual({ displayName: 'Ana Sol' });
+    expect(recognized.identity).toEqual({ displayName: first.comment.displayName });
     expect(recognized.comments[0]).toMatchObject({ id: first.comment.id, editable: true });
     await expect(comments.create(firstToken, { content: 'Sin CSRF' }, cookie, undefined, '127.0.0.1')).rejects.toMatchObject({ status: 403 });
     const second = await comments.create(firstToken, { content: 'Segundo' }, cookie, recognized.csrfToken!, '127.0.0.1');
-    expect(second).toMatchObject({ session: null, comment: { displayName: 'Ana Sol' } });
+    expect(second).toMatchObject({ session: null, comment: { displayName: first.comment.displayName } });
+    const edited = await comments.edit(firstToken, first.comment.id, { content: 'Primero corregido', expectedRevision: 1 }, cookie, recognized.csrfToken!, '127.0.0.1');
+    expect(edited).toMatchObject({ id: first.comment.id, content: 'Primero corregido', revision: 2, anchor: first.comment.anchor });
+    expect(edited.editedAt).toBeTruthy();
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Borrador obsoleto', expectedRevision: 1 }, cookie, recognized.csrfToken!, '127.0.0.1'))
+      .rejects.toMatchObject({ status: 409, response: { details: { current: { content: 'Primero corregido', revision: 2 } } } });
+    expect((await comments.list(firstToken, cookie)).comments.find(item => item.id === first.comment.id)).toMatchObject({ content: 'Primero corregido', revision: 2, editable: true });
     expect(await comments.list(secondToken, cookie)).toMatchObject({ identity: null, comments: [] });
     const otherShare = await comments.create(secondToken, { displayName: 'Otro nombre', content: 'Otro mapa' }, cookie, (await comments.list(secondToken, cookie)).csrfToken!, '127.0.0.2');
     expect(otherShare.session).toBeNull();
-    expect((await comments.list(secondToken, cookie)).identity).toEqual({ displayName: 'Otro nombre' });
+    expect((await comments.list(secondToken, cookie)).identity).toEqual({ displayName: otherShare.comment.displayName });
     const lost = await comments.list(firstToken);
     expect(lost).toMatchObject({ identity: null });
     expect(lost.comments[0]).toMatchObject({ editable: false });
@@ -59,13 +65,45 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const expiredSignature = createHmac('sha256', process.env.SHARE_TOKEN_SECRET!).update(`comment:v1:${expiredAt}:${nonce}`).digest('base64url');
     const expiredCookie = `__Host-theke-comment=v1.${expiredAt}.${nonce}.${expiredSignature}`;
     expect((await comments.list(firstToken, expiredCookie)).identity).toBeNull();
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Sin identidad', expectedRevision: 2 }, expiredCookie, undefined, '127.0.0.3')).rejects.toMatchObject({ status: 403 });
     const repeatedName = await comments.create(firstToken, { displayName: 'Ana Sol', content: 'Nueva identidad' }, expiredCookie, undefined, '127.0.0.3');
     expect(repeatedName.session).toBeTruthy();
     expect((await comments.list(firstToken, cookie)).comments.find(item => item.id === repeatedName.comment.id)?.editable).toBe(false);
+    const resourceId = randomUUID(); const secondResourceId = randomUUID(); const relationId = randomUUID();
+    await database.db.update(diagramShares).set({ projection: { diagramName: 'Mapa', revision: 1,
+      resources: [{ id: resourceId, title: 'Fuente visible' }, { id: secondResourceId, title: 'Destino visible' }],
+      relations: [{ id: relationId, label: 'Sustenta', sourceResourceId: resourceId, targetResourceId: secondResourceId }],
+      layout: { nodes: [{ resourceId, x: 10, y: 20, width: 100, height: 60 }, { resourceId: secondResourceId, x: 210, y: 120, width: 100, height: 60 }], edges: [] },
+    } }).where(eq(diagramShares.id, shareIds[0]!));
+    const newCookie = cookieValue(comments.cookieHeader(repeatedName.session!));
+    const csrf = (await comments.list(firstToken, newCookie)).csrfToken!;
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Intento ajeno', expectedRevision: 2 }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 404 });
+    await expect(comments.create(firstToken, { content: 'No publicada', anchor: { type: 'resource', resourceId: randomUUID() } }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 404 });
+    await expect(comments.create(firstToken, { content: 'No publicada', anchor: { type: 'diagram', x: Infinity, y: 1 } }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 400 });
+    const onResource = await comments.create(firstToken, { content: 'Sobre la fuente', anchor: { type: 'resource', resourceId } }, newCookie, csrf, '127.0.0.3');
+    expect(onResource.comment.anchor).toEqual({ type: 'resource', resourceId, label: 'Fuente visible', x: 60, y: 50 });
+    const onRelation = await comments.create(firstToken, { content: 'Sobre la relación', anchor: { type: 'relation', relationId } }, newCookie, csrf, '127.0.0.3');
+    expect(onRelation.comment.anchor).toEqual({ type: 'relation', relationId, label: 'Sustenta', x: 160, y: 100 });
+    const onPoint = await comments.create(firstToken, { content: 'En este punto', anchor: { type: 'diagram', x: 25, y: -50 } }, newCookie, csrf, '127.0.0.3');
+    expect(onPoint.comment.anchor).toEqual({ type: 'diagram', x: 25, y: -50 });
+    await comments.create(firstToken, { content: 'Quinto comentario' }, newCookie, csrf, '127.0.0.3');
+    await expect(comments.create(firstToken, { content: 'Supera el límite' }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 429 });
+    await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, first.comment.id));
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Comentario eliminado', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 404 });
+    await database.db.update(publicShareComments).set({ deletedAt: null }).where(eq(publicShareComments.id, first.comment.id));
     await database.db.update(diagramShares).set({ commentsEnabled: false }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.create(firstToken, { content: 'Bloqueado' }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
-    expect((await comments.list(firstToken)).comments).toHaveLength(3);
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Edición bloqueada', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
+    expect((await comments.list(firstToken)).comments).toHaveLength(7);
+    await database.db.update(diagramShares).set({ commentsEnabled: true }).where(eq(diagramShares.id, shareIds[0]!));
+    await expect(comments.claim(firstToken, cookie, 'wrong-csrf', { id: userId, displayName: 'Investigadora' })).rejects.toMatchObject({ status: 403 });
+    expect(await comments.claim(firstToken, cookie, recognized.csrfToken!, { id: userId, displayName: 'Investigadora' })).toEqual({ claimed: 2 });
+    expect(await comments.claim(firstToken, cookie, recognized.csrfToken!, { id: randomUUID(), displayName: 'Otra persona' })).toEqual({ claimed: 0 });
+    expect((await comments.list(firstToken, cookie)).comments.find(item => item.id === first.comment.id)).toMatchObject({ displayName: 'Investigadora', editable: false });
+    expect((await comments.list(firstToken, undefined, { id: userId, displayName: 'Investigadora' })).comments.find(item => item.id === first.comment.id)).toMatchObject({ displayName: 'Investigadora', editable: true });
+    await expect(comments.edit(firstToken, first.comment.id, { content: 'Ya firmado', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 404 });
+    expect(await comments.edit(firstToken, first.comment.id, { content: 'Ya firmado', expectedRevision: 2 }, undefined, undefined, '127.0.0.1', { id: userId, displayName: 'Investigadora' })).toMatchObject({ content: 'Ya firmado', revision: 3 });
     await database.db.update(diagramShares).set({ revokedAt: new Date() }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.list(firstToken)).rejects.toMatchObject({ status: 404 });
-  }, 30_000);
+  }, 60_000);
 });

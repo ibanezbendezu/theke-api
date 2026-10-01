@@ -58,17 +58,34 @@ export const diagramShareEvents = pgTable('diagram_share_events', {
     action: text('action').$type<'published' | 'retried' | 'refreshed' | 'comments_changed' | 'revoked'>().notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });
+export type PublicCommentAnchor =
+  | { type: 'diagram'; x?: number; y?: number }
+  | { type: 'resource'; resourceId: string; x?: number; y?: number; label: string }
+  | { type: 'relation'; relationId: string; x?: number; y?: number; label: string };
 export const publicShareComments = pgTable('public_share_comments', {
   id: uuid('id').defaultRandom().primaryKey(),
   shareId: uuid('share_id').notNull().references(() => diagramShares.id),
-  ownerHash: text('owner_hash').notNull(),
+    ownerHash: text('owner_hash').notNull(),
+    authorUserId: uuid('author_user_id').references(() => users.id),
   ipHash: text('ip_hash').notNull(),
   displayName: text('display_name').notNull(),
   content: text('content').notNull(),
-  anchor: jsonb('anchor').$type<{ type: 'diagram' }>().notNull().default({ type: 'diagram' }),
+  revision: integer('revision').notNull().default(1),
+  anchor: jsonb('anchor').$type<PublicCommentAnchor>().notNull().default({ type: 'diagram' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  editedAt: timestamp('edited_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 }, table => [index('public_share_comments_share_created_idx').on(table.shareId, table.createdAt), index('public_share_comments_owner_idx').on(table.shareId, table.ownerHash)]);
+export const publicShareCommentMutations = pgTable('public_share_comment_mutations', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  shareId: uuid('share_id').notNull().references(() => diagramShares.id),
+  commentId: uuid('comment_id').notNull().references(() => publicShareComments.id),
+  ownerHash: text('owner_hash').notNull(),
+  ipHash: text('ip_hash').notNull(),
+  action: text('action').$type<'created' | 'edited'>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [index('public_share_comment_mutations_share_time_idx').on(table.shareId, table.createdAt), index('public_share_comment_mutations_owner_time_idx').on(table.ownerHash, table.createdAt), index('public_share_comment_mutations_ip_time_idx').on(table.ipHash, table.createdAt)]);
 export const resources = pgTable('resources', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
