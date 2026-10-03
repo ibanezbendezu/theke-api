@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { diagramShares, publicShareComments, publicShareCommentMutations, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
+import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { publicCommentRatePolicy } from './public-comment-rate-policy.js';
 import { scientificAlias } from './public-comment-alias.js';
@@ -124,7 +124,7 @@ export class PublicCommentsService {
     const existingSession = this.session(cookieHeader);
     const shareHash = this.shareHash(token);
     return withSerializationRetry(() => this.database.db.transaction(async tx => {
-      const [share] = await tx.select({ id: diagramShares.id, commentsEnabled: diagramShares.commentsEnabled, projection: diagramShares.projection })
+      const [share] = await tx.select({ id: diagramShares.id, accountId: diagramShares.accountId, diagramId: diagramShares.diagramId, commentsEnabled: diagramShares.commentsEnabled, projection: diagramShares.projection })
         .from(diagramShares).where(and(eq(diagramShares.tokenHash, shareHash), isNull(diagramShares.revokedAt))).for('update').limit(1);
       if (!share) throw new NotFoundException('Compartido no encontrado.');
       if (!share.commentsEnabled) throw new ConflictException('Este Compartido no acepta comentarios nuevos.');
@@ -147,6 +147,7 @@ export class PublicCommentsService {
         throw new HttpException('Límite de comentarios alcanzado. Inténtalo más tarde.', 429);
       const [comment] = await tx.insert(publicShareComments).values({ shareId: share.id, ownerHash, authorUserId: user?.id, ipHash, displayName, content, anchor }).returning({ id: publicShareComments.id, createdAt: publicShareComments.createdAt });
       await tx.insert(publicShareCommentMutations).values({ shareId: share.id, commentId: comment!.id, ownerHash, ipHash, action: 'created' });
+      await tx.insert(commentNotifications).values({ accountId: share.accountId, diagramId: share.diagramId, commentId: comment!.id }).onConflictDoNothing({ target: commentNotifications.commentId });
       return { comment: { id: comment!.id, displayName, content, anchor, revision: 1, editedAt: null, createdAt: comment!.createdAt.toISOString(), editable: true },
         session: existingSession ? null : session };
     }, { isolationLevel: 'serializable' }));

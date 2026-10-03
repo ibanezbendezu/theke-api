@@ -76,7 +76,16 @@ export const publicShareComments = pgTable('public_share_comments', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   editedAt: timestamp('edited_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 }, table => [index('public_share_comments_share_created_idx').on(table.shareId, table.createdAt), index('public_share_comments_owner_idx').on(table.shareId, table.ownerHash)]);
+export const commentNotifications = pgTable('comment_notifications', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  diagramId: uuid('diagram_id').notNull().references(() => diagrams.id),
+  commentId: uuid('comment_id').notNull().references(() => publicShareComments.id),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [uniqueIndex('comment_notifications_comment_uq').on(table.commentId), index('comment_notifications_account_created_idx').on(table.accountId, table.createdAt)]);
 export const publicShareCommentMutations = pgTable('public_share_comment_mutations', {
   id: uuid('id').defaultRandom().primaryKey(),
   shareId: uuid('share_id').notNull().references(() => diagramShares.id),

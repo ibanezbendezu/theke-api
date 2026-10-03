@@ -1022,6 +1022,28 @@
         }
       }
     },
+    "/v1/comment-notifications": {
+      "get": { "operationId": "listCommentNotifications", "security": [{ "bearerAuth": [] }], "description": "Lista avisos del autor con paginación y filtros; el cliente puede refrescar al recuperar foco.",
+        "parameters": [
+          { "name": "diagramId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "commentId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1 } },
+          { "name": "filter", "in": "query", "schema": { "type": "string", "enum": ["all", "pending", "resolved", "anchored", "unanchored"] } }
+        ],
+        "responses": { "200": { "description": "Página de avisos y contador pendiente", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentNotificationsResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/comment-notifications/events": {
+      "get": { "operationId": "streamCommentNotifications", "security": [{ "bearerAuth": [] }], "description": "SSE autenticado de invalidación; la lista paginada sigue siendo la fuente de verdad.",
+        "responses": { "200": { "description": "Eventos de cambios de avisos", "content": { "text/event-stream": { "schema": { "type": "string" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" } }
+      }
+    },
+    "/v1/comment-notifications/{id}/read": {
+      "patch": { "operationId": "readCommentNotification", "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Aviso leído", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReadCommentNotificationResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
     "/v1/public/shares/{token}/comments/claim": {
       "parameters": [{ "name": "token", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" } }],
       "post": { "operationId": "claimPublicShareComments", "security": [{ "bearerAuth": [] }], "description": "Vincula a la cuenta Clerk autenticada los comentarios de la cookie anónima vigente de este Compartido. Requiere Origin, JSON y CSRF si existe la cookie.", "parameters": [{ "name": "X-CSRF-Token", "in": "header", "required": false, "schema": { "type": "string" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false } } } }, "responses": { "200": { "description": "Comentarios vinculados", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClaimPublicCommentsResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthorized" }, "403": { "description": "Origen o CSRF no válido", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiErrorResponse" } } } }, "404": { "$ref": "#/components/responses/NotFound" } } }
@@ -1894,6 +1916,9 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "relationId", "label"], "properties": { "type": { "const": "relation" }, "relationId": { "type": "string", "format": "uuid" }, "label": { "type": "string" }, "x": { "type": "number" }, "y": { "type": "number" } } }
       ] },
       "PublicComment": { "type": "object", "additionalProperties": false, "required": ["id", "displayName", "content", "anchor", "createdAt", "editedAt", "revision", "editable"], "properties": { "id": { "type": "string", "format": "uuid" }, "displayName": { "type": "string" }, "content": { "type": "string" }, "anchor": { "$ref": "#/components/schemas/PublicCommentAnchor" }, "createdAt": { "type": "string", "format": "date-time" }, "editedAt": { "type": ["string", "null"], "format": "date-time" }, "revision": { "type": "integer", "minimum": 1 }, "editable": { "type": "boolean" } } },
+      "CommentNotification": { "type": "object", "additionalProperties": false, "required": ["id", "commentId", "diagramId", "projectId", "diagramName", "displayName", "content", "anchor", "createdAt", "readAt", "resolvedAt", "anchored"], "properties": { "id": { "type": "string", "format": "uuid" }, "commentId": { "type": "string", "format": "uuid" }, "diagramId": { "type": "string", "format": "uuid" }, "projectId": { "type": "string", "format": "uuid" }, "diagramName": { "type": "string" }, "displayName": { "type": "string" }, "content": { "type": "string" }, "anchor": { "$ref": "#/components/schemas/PublicCommentAnchor" }, "createdAt": { "type": "string", "format": "date-time" }, "readAt": { "type": ["string", "null"], "format": "date-time" }, "resolvedAt": { "type": ["string", "null"], "format": "date-time" }, "anchored": { "type": "boolean" } } },
+      "CommentNotificationsResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["items", "page", "hasMore", "unreadCount"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/CommentNotification" } }, "page": { "type": "integer" }, "hasMore": { "type": "boolean" }, "unreadCount": { "type": "integer" } } } } },
+      "ReadCommentNotificationResponse": { "type": "object", "required": ["data"], "properties": { "data": { "type": "object", "required": ["id", "readAt"], "properties": { "id": { "type": "string", "format": "uuid" }, "readAt": { "type": "string", "format": "date-time" } } } } },
       "PublicCommentsResponse": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["identity", "csrfToken", "comments"], "properties": { "identity": { "type": ["object", "null"], "required": ["displayName"], "properties": { "displayName": { "type": "string" } } }, "csrfToken": { "type": ["string", "null"] }, "comments": { "type": "array", "items": { "$ref": "#/components/schemas/PublicComment" } } } } } },
       "CreatePublicCommentInput": { "type": "object", "additionalProperties": false, "required": ["content"], "properties": { "displayName": { "type": "string", "maxLength": 60, "deprecated": true, "description": "Campo heredado ignorado; Theke asigna el nombre según la identidad verificada." }, "content": { "type": "string", "maxLength": 5000 }, "anchor": { "description": "Requerido por el compositor contextual; omitido solo por clientes anteriores.", "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "x", "y"], "properties": { "type": { "const": "diagram" }, "x": { "type": "number" }, "y": { "type": "number" } } },

@@ -2,19 +2,21 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { Database } from '../src/infrastructure/database/database.js';
-import { accounts, diagramShares, diagrams, projects, publicShareComments, publicShareCommentMutations, users } from '../src/infrastructure/database/schema.js';
+import { accounts, commentNotifications, diagramShares, diagrams, projects, publicShareComments, publicShareCommentMutations, users } from '../src/infrastructure/database/schema.js';
 import { PublicCommentsService } from '../src/modules/diagrams/public-comments.service.js';
+import { CommentNotificationsService } from '../src/modules/diagrams/comment-notifications.service.js';
 
 describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comentarios con PostgreSQL', () => {
   const database = new Database();
   const comments = new PublicCommentsService(database);
+  const notifications = new CommentNotificationsService(database);
   const previousSecret = process.env.SHARE_TOKEN_SECRET;
   const tokens = [randomBytes(32).toString('base64url'), randomBytes(32).toString('base64url')];
   let userId = ''; let accountId = ''; const projectIds: string[] = []; const diagramIds: string[] = []; const shareIds: string[] = [];
   const cookieValue = (setCookie: string) => setCookie.split(';')[0]!;
 
   afterAll(async () => {
-    if (shareIds.length) { await database.db.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.shareId, shareIds)); await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
+    if (shareIds.length) { await database.db.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.shareId, shareIds)); await database.db.delete(commentNotifications).where(eq(commentNotifications.accountId, accountId)); await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
     if (diagramIds.length) await database.db.delete(diagrams).where(inArray(diagrams.id, diagramIds));
     if (projectIds.length) await database.db.delete(projects).where(inArray(projects.id, projectIds));
     if (accountId) await database.db.delete(accounts).where(eq(accounts.id, accountId));
@@ -37,6 +39,11 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     await expect(comments.create(firstToken, { content: ' ' }, undefined, undefined, '127.0.0.1')).rejects.toMatchObject({ status: 400 });
     expect((await comments.list(firstToken)).comments).toHaveLength(0);
     const first = await comments.create(firstToken, { content: 'Primero' }, undefined, undefined, '127.0.0.1');
+    const pending = await notifications.list(accountId, {filter: 'pending'});
+    expect(pending).toMatchObject({unreadCount: 1, items: [{commentId: first.comment.id, diagramId: diagramIds[0], projectId: projectIds[0], anchored: false}]});
+    await expect(notifications.markRead(randomUUID(), pending.items[0]!.id)).rejects.toMatchObject({status: 404});
+    await notifications.markRead(accountId, pending.items[0]!.id);
+    expect((await notifications.list(accountId, {filter: 'pending'})).unreadCount).toBe(0);
     expect(first.comment).toMatchObject({ displayName: expect.stringMatching(/^[A-Z][a-z]+ [a-z]+$/), content: 'Primero', editable: true });
     expect(first.session).toBeTruthy();
     const cookie = cookieValue(comments.cookieHeader(first.session!));
