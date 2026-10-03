@@ -1866,7 +1866,7 @@
         "required": ["id", "sourceResourceId", "targetResourceId", "direction", "typeKey", "label", "explanation"],
         "properties": {
           "id": { "type": "string", "format": "uuid" }, "sourceResourceId": { "type": "string", "format": "uuid" }, "targetResourceId": { "type": "string", "format": "uuid" },
-          "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" },
+          "direction": { "type": "string", "enum": ["directed", "undirected"] }, "typeKey": { "type": "string" }, "typeLabel": { "type": "string" },
           "label": { "type": ["string", "null"] }, "explanation": { "type": ["string", "null"] },
           "evidence": { "type": "array", "items": { "$ref": "#/components/schemas/PublicRelationEvidence" } }
         }

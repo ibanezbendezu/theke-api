@@ -3,7 +3,8 @@ import { createHash, createHmac } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramShareEvents, diagramShares, diagrams, projects, publicShareComments, resources as resourcesTable, resourceVersions } from '../../infrastructure/database/schema.js';
+import { diagramShareEvents, diagramShares, diagrams, projects, publicShareComments, relationTypes, resources as resourcesTable, resourceVersions } from '../../infrastructure/database/schema.js';
+import { commonRelationTypes } from '../relations/relation.service.js';
 import { UPLOAD_STORAGE, type UploadStorage } from '../uploads/upload.ports.js';
 import { SharePreviewService } from './share-preview.service.js';
 import { commentHasAnchor } from './comment-anchor.js';
@@ -137,7 +138,7 @@ export class DiagramShareService {
   private async shareForToken(token: string) {
     if (!tokenPattern.test(token)) throw new NotFoundException('Compartido no encontrado.');
     const tokenHash = createHash('sha256').update(token).digest('hex');
-    const [share] = await this.database.db.select({ projection: diagramShares.projection, mediaManifest: diagramShares.mediaManifest, commentsEnabled: diagramShares.commentsEnabled }).from(diagramShares)
+    const [share] = await this.database.db.select({ accountId: diagramShares.accountId, projection: diagramShares.projection, mediaManifest: diagramShares.mediaManifest, commentsEnabled: diagramShares.commentsEnabled }).from(diagramShares)
       .where(and(eq(diagramShares.tokenHash, tokenHash), isNull(diagramShares.revokedAt))).limit(1);
     if (!share) throw new NotFoundException('Compartido no encontrado.');
     return share;
@@ -146,7 +147,19 @@ export class DiagramShareService {
   async getPublic(token: string) {
     const share = await this.shareForToken(token);
     const { diagramName, revision, resources, relations, layout } = share.projection;
-    return { diagramName, revision, resources, relations, layout: layout ?? { nodes: [], edges: [] }, commentsEnabled: share.commentsEnabled };
+    const legacy = relations.filter(item => typeof item === 'object' && item !== null && 'typeKey' in item && !('typeLabel' in item)) as { typeKey: string }[];
+    const customIds = [...new Set(legacy.filter(item => item.typeKey.startsWith('custom:')).map(item => item.typeKey.slice(7)))];
+    const customTypes = customIds.length ? await this.database.db.select({ id: relationTypes.id, label: relationTypes.label }).from(relationTypes)
+      .where(and(eq(relationTypes.accountId, share.accountId), inArray(relationTypes.id, customIds))) : [];
+    const customLabels = new Map(customTypes.map(item => [item.id, item.label]));
+    const publicRelations = relations.map(item => {
+      if (typeof item !== 'object' || item === null || !('typeKey' in item) || 'typeLabel' in item) return item;
+      const relation = item as { typeKey: string };
+      const typeLabel = relation.typeKey.startsWith('custom:') ? customLabels.get(relation.typeKey.slice(7)) ?? 'Relación'
+        : commonRelationTypes.find(type => type.key === relation.typeKey)?.label ?? 'Relación';
+      return { ...relation, typeLabel };
+    });
+    return { diagramName, revision, resources, relations: publicRelations, layout: layout ?? { nodes: [], edges: [] }, commentsEnabled: share.commentsEnabled };
   }
 
   async getPublicMedia(token: string, resourceId: string) {

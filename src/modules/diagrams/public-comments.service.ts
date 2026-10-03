@@ -2,8 +2,9 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
+import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, relationTypes, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
+import { commonRelationTypes } from '../relations/relation.service.js';
 import { publicCommentRatePolicy } from './public-comment-rate-policy.js';
 import { scientificAlias } from './public-comment-alias.js';
 import { commentHasAnchor } from './comment-anchor.js';
@@ -67,7 +68,7 @@ export class PublicCommentsService {
     return content;
   }
 
-  private resolveAnchor(input: unknown, projection: typeof diagramShares.$inferSelect.projection): PublicCommentAnchor {
+  private resolveAnchor(input: unknown, projection: typeof diagramShares.$inferSelect.projection, legacyTypeLabel?: string): PublicCommentAnchor {
     if (input === undefined) return { type: 'diagram' }; // Existing clients can still publish a general comment.
     if (!input || typeof input !== 'object') throw new BadRequestException('Selecciona un punto, Recurso o Relación para comentar.');
     const value = input as Record<string, unknown>;
@@ -91,12 +92,12 @@ export class PublicCommentsService {
       return { type: 'resource', resourceId: resource.id, label: resource.title?.slice(0, 160) || 'Recurso', ...(positionOf(resource.id) ?? point) };
     }
     if (value.type === 'relation' && typeof value.relationId === 'string') {
-      const relation = projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.relationId) as { id: string; label?: string | null; typeKey?: string; sourceResourceId?: string; targetResourceId?: string } | undefined;
+      const relation = projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.relationId) as { id: string; label?: string | null; typeKey?: string; typeLabel?: string; sourceResourceId?: string; targetResourceId?: string } | undefined;
       if (!relation) throw new NotFoundException('Destino no disponible en este Compartido.');
       const source = relation.sourceResourceId ? positionOf(relation.sourceResourceId) : null;
       const target = relation.targetResourceId ? positionOf(relation.targetResourceId) : null;
       const middle = source && target ? { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 } : null;
-      return { type: 'relation', relationId: relation.id, label: (relation.label || relation.typeKey || 'Relación').slice(0, 160), ...(middle ?? point) };
+      return { type: 'relation', relationId: relation.id, label: (relation.label || relation.typeLabel || legacyTypeLabel || 'Relación').slice(0, 160), ...(middle ?? point) };
     }
     throw new BadRequestException('Selecciona un punto, Recurso o Relación para comentar.');
   }
@@ -132,7 +133,13 @@ export class PublicCommentsService {
       if (!share) throw new NotFoundException('Compartido no encontrado.');
       if (!share.commentsEnabled) throw new ConflictException('Este Compartido no acepta comentarios nuevos.');
       if (existingSession && csrfToken !== this.csrf(share.id, existingSession)) throw new ForbiddenException('Verificación de comentario no válida.');
-      const anchor = this.resolveAnchor(input.anchor, share.projection);
+      const requestedRelationId = input.anchor && typeof input.anchor === 'object' && 'relationId' in input.anchor ? input.anchor.relationId : null;
+      const projectedRelation = share.projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === requestedRelationId) as { typeKey?: string; typeLabel?: string } | undefined;
+      const legacyCustomId = projectedRelation && !projectedRelation.typeLabel && projectedRelation.typeKey?.startsWith('custom:') ? projectedRelation.typeKey.slice(7) : null;
+      const [legacyType] = legacyCustomId ? await tx.select({ label: relationTypes.label }).from(relationTypes)
+        .where(and(eq(relationTypes.accountId, share.accountId), eq(relationTypes.id, legacyCustomId))).limit(1) : [];
+      const legacyTypeLabel = legacyType?.label ?? commonRelationTypes.find(type => type.key === projectedRelation?.typeKey)?.label;
+      const anchor = this.resolveAnchor(input.anchor, share.projection, legacyTypeLabel);
       const session = existingSession ?? this.newSession();
       const ownerHash = user ? this.registeredOwner(share.id, user.id) : this.owner(share.id, session);
       const [previous] = await tx.select({ displayName: publicShareComments.displayName }).from(publicShareComments)

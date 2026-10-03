@@ -95,6 +95,18 @@ describe('publicación de Compartidos', () => {
     await expect(missing.getPublic(token)).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('recupera el nombre de tipos personalizados en compartidos anteriores', async () => {
+    const token = 'a'.repeat(43);
+    const typeId = '44444444-4444-4444-8444-444444444444';
+    const legacyRelation = { id: 'relation', typeKey: `custom:${typeId}`, label: null };
+    const limit = vi.fn(async () => [{ accountId: 'owner', projection: { ...projection, relations: [legacyRelation] }, commentsEnabled: true }]);
+    const where = vi.fn(async () => [{ id: typeId, label: 'Contextualiza smoke' }]);
+    const select = vi.fn().mockReturnValueOnce({ from: () => ({ where: () => ({ limit }) }) })
+      .mockReturnValueOnce({ from: () => ({ where }) });
+    const service = new DiagramShareService({ db: { select } } as never, {} as never, { read: vi.fn() } as never);
+    expect((await service.getPublic(token)).relations).toEqual([{ ...legacyRelation, typeLabel: 'Contextualiza smoke' }]);
+  });
+
   it('solo entrega bytes del archivo fijado y nunca la clave de almacenamiento', async () => {
     const token = 'a'.repeat(43); const resourceId = '11111111-1111-4111-8111-111111111111';
     const read = vi.fn(async () => (async function* () { yield Buffer.from('file'); })());

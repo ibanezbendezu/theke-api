@@ -2,7 +2,8 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { folders, projectResources, relationEvidence, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { folders, projectResources, relationEvidence, relationTypes, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { commonRelationTypes } from '../relations/relation.service.js';
 import { DiagramService } from './diagram.service.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -104,6 +105,11 @@ export class SharePreviewService {
     }).from(relations).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.id, relationKeys))) : [];
     const relationById = new Map(relationRows.filter(row => relationKeys.includes(row.id) && !('archivedAt' in row && row.archivedAt) && !('deletedAt' in row && row.deletedAt)).map(row => [row.id, row]));
     if (relationById.size !== relationKeys.length) throw new ConflictException('Relación del Canvas no disponible.');
+    const customTypeIds = [...new Set(relationRows.filter(row => row.typeKey.startsWith('custom:')).map(row => row.typeKey.slice(7)))];
+    const customTypes = customTypeIds.length ? await db.select({ id: relationTypes.id, label: relationTypes.label }).from(relationTypes)
+      .where(and(eq(relationTypes.accountId, accountId), inArray(relationTypes.id, customTypeIds))) : [];
+    const customTypeLabels = new Map(customTypes.map(type => [type.id, type.label]));
+    if (customTypeLabels.size !== customTypeIds.length) throw new ConflictException('Tipo de Relación del Canvas no disponible.');
     const evidenceRows = relationKeys.length && ids.length ? await db.select({ id: relationEvidence.id, relationId: relationEvidence.relationId, resourceId: relationEvidence.resourceId,
       excerpt: relationEvidence.excerpt, note: relationEvidence.note, pageNumber: relationEvidence.pageNumber }).from(relationEvidence)
       .where(and(inArray(relationEvidence.relationId, relationKeys), inArray(relationEvidence.resourceId, ids))) : [];
@@ -162,7 +168,9 @@ export class SharePreviewService {
     const projection = { diagramName: diagram.name, revision: diagram.revision, resources: publicResources, layout,
       relations: relationKeys.map(id => { const row = relationById.get(id)!; return {
         id: row.id, sourceResourceId: row.sourceResourceId, targetResourceId: row.targetResourceId,
-        direction: row.direction, typeKey: row.typeKey, label: row.label ?? null, explanation: row.explanation ?? null,
+        direction: row.direction, typeKey: row.typeKey,
+        typeLabel: row.typeKey.startsWith('custom:') ? customTypeLabels.get(row.typeKey.slice(7))! : commonRelationTypes.find(type => type.key === row.typeKey)?.label ?? row.typeKey,
+        label: row.label ?? null, explanation: row.explanation ?? null,
         evidence: evidenceRows.filter(item => item.relationId === id && ids.includes(item.resourceId)).map(item => ({ resourceId: item.resourceId, excerpt: item.excerpt ?? null, note: item.note ?? null, pageNumber: item.pageNumber ?? null })),
       }; }) };
     const fingerprint = createHash('sha256').update(JSON.stringify({ projection, versions: ids.map(id => resourceById.get(id)!.versionId) })).digest('hex');

@@ -11,8 +11,8 @@ const relation = { id: relationId, sourceResourceId: resourceId, targetResourceI
 const nodes = [{ id: 'n1', type: 'resource', position: { x: 10, y: 20 }, data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', position: { x: 200, y: 80 }, data: { resourceId: otherId } }, { id: 'folder', type: 'container', position: { x: 300, y: 0 }, width: 400, height: 260, data: { label: 'Grupo visible', privateReference: 'hidden' } }];
 const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { relationId, privateReference: 'hidden' } }];
 
-function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; folderRows?: object[]; folderCountRows?: object[]; relationRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
-  const responses = [input.resourceRows ?? [note, file], ...(input.folderRows ? [input.folderRows, input.folderCountRows ?? []] : []), input.relationRows ?? [relation], input.evidenceRows ?? []];
+function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; folderRows?: object[]; folderCountRows?: object[]; relationRows?: object[]; customTypeRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
+  const responses = [input.resourceRows ?? [note, file], ...(input.folderRows ? [input.folderRows, input.folderCountRows ?? []] : []), input.relationRows ?? [relation], ...(input.customTypeRows ? [input.customTypeRows] : []), input.evidenceRows ?? []];
   const where = vi.fn();
   for (const response of responses) where.mockImplementationOnce(async () => response);
   const select = vi.fn(() => {
@@ -43,7 +43,7 @@ describe('preview privado de diagramas', () => {
     expect(preview).toEqual({ diagramName: 'Mapa', revision: 7, resources: [
       { id: resourceId, title: 'Nota', type: 'note', description: 'Descripción', content: 'Texto completo', url: null, accessibilityText: null, mediaType: null },
       { id: otherId, title: 'Imagen', type: 'file', description: null, content: null, url: null, accessibilityText: 'Imagen accesible', mediaType: 'image/png' },
-    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', label: 'Respalda', explanation: 'Explicación', evidence: [] }],
+    ], relations: [{ id: relationId, sourceResourceId: resourceId, targetResourceId: otherId, direction: 'directed', typeKey: 'supports', typeLabel: 'Respalda', label: 'Respalda', explanation: 'Explicación', evidence: [] }],
       layout: { background: { variant: 'grid', tone: 'default' }, nodes: [{ id: 'n0', type: 'resource', resourceId, x: 10, y: 20 }, { id: 'n1', type: 'resource', resourceId: otherId, x: 200, y: 80 }, { id: 'n2', type: 'container', x: 300, y: 0, width: 400, height: 260, label: 'Grupo visible' }], edges: [{ id: 'e0', relationId, source: 'n0', target: 'n1' }] },
       fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/), warnings: [], ready: true });
     expect(JSON.stringify(preview)).not.toMatch(/private|secret|storageKey|versionId|projectId|folder|viewport|Unrelated|provenance/);
@@ -104,6 +104,14 @@ describe('preview privado de diagramas', () => {
   it('no expone referencias wiki a recursos privados desde el contenido de una nota', async () => {
     const { service } = setup({ resourceRows: [{ ...note, content: `Texto [[resource:${relationId}|Nota privada]]` }, file] });
     await expect(service.get('owner', 'diagram')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('incluye el nombre del tipo personalizado en la proyección pública', async () => {
+    const typeId = '44444444-4444-4444-8444-444444444444';
+    const { service } = setup({ relationRows: [{ ...relation, typeKey: `custom:${typeId}`, label: null }], customTypeRows: [{ id: typeId, label: 'Contextualiza smoke' }] });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.relations[0]).toMatchObject({ typeKey: `custom:${typeId}`, typeLabel: 'Contextualiza smoke', label: null });
+    expect(JSON.stringify(preview)).not.toContain('private-project');
   });
 
   it('publica posiciones absolutas y solo evidencia de recursos representados', async () => {
