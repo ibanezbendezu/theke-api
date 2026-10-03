@@ -1,7 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, count, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { commentNotifications, diagrams, projects, publicShareComments, users } from '../../infrastructure/database/schema.js';
+import { commentModerationEvents, commentNotifications, diagrams, projects, publicShareCommentMutations, publicShareComments, users } from '../../infrastructure/database/schema.js';
+
+const moderationPolicy = { minute: 30, hour: 300 } as const;
 
 @Injectable()
 export class CommentNotificationsService {
@@ -15,20 +17,19 @@ export class CommentNotificationsService {
     if (!Number.isInteger(page) || page < 1 || page > 10000) throw new BadRequestException('Página no válida.');
     const filter = input.filter ?? 'all';
     if (!['all', 'pending', 'resolved', 'anchored', 'unanchored'].includes(filter)) throw new BadRequestException('Filtro no válido.');
-    const anchored = sql<boolean>`jsonb_typeof(${publicShareComments.anchor} -> 'x') = 'number' and jsonb_typeof(${publicShareComments.anchor} -> 'y') = 'number'`;
     const conditions = [eq(commentNotifications.accountId, accountId), isNull(publicShareComments.deletedAt)];
     if (input.diagramId) conditions.push(eq(commentNotifications.diagramId, input.diagramId));
     if (input.commentId) conditions.push(eq(commentNotifications.commentId, input.commentId));
     if (filter === 'pending') conditions.push(isNull(commentNotifications.readAt), isNull(publicShareComments.resolvedAt));
     if (filter === 'resolved') conditions.push(isNotNull(publicShareComments.resolvedAt));
-    if (filter === 'anchored') conditions.push(anchored);
-    if (filter === 'unanchored') conditions.push(sql`not (${anchored})`);
+    if (filter === 'anchored') conditions.push(isNull(publicShareComments.orphanedAt));
+    if (filter === 'unanchored') conditions.push(isNotNull(publicShareComments.orphanedAt));
     const rows = await this.database.db.select({
       id: commentNotifications.id, commentId: publicShareComments.id, diagramId: commentNotifications.diagramId,
       projectId: projects.id, diagramName: diagrams.name, displayName: publicShareComments.displayName,
       profileName: users.displayName, content: publicShareComments.content, anchor: publicShareComments.anchor,
       createdAt: publicShareComments.createdAt, readAt: commentNotifications.readAt,
-      resolvedAt: publicShareComments.resolvedAt,
+      resolvedAt: publicShareComments.resolvedAt, orphanedAt: publicShareComments.orphanedAt,
     }).from(commentNotifications)
       .innerJoin(publicShareComments, eq(commentNotifications.commentId, publicShareComments.id))
       .innerJoin(diagrams, eq(commentNotifications.diagramId, diagrams.id))
@@ -42,7 +43,7 @@ export class CommentNotificationsService {
       diagramName: row.diagramName, displayName: row.profileName ?? row.displayName,
       content: row.content, anchor: row.anchor, createdAt: row.createdAt.toISOString(),
       readAt: row.readAt?.toISOString() ?? null, resolvedAt: row.resolvedAt?.toISOString() ?? null,
-      anchored: typeof row.anchor.x === 'number' && typeof row.anchor.y === 'number',
+      anchored: row.orphanedAt === null && typeof row.anchor.x === 'number' && typeof row.anchor.y === 'number',
     })), page, hasMore: rows.length > 20, unreadCount };
   }
 
@@ -58,7 +59,10 @@ export class CommentNotificationsService {
     const [latest] = await this.database.db.select({ id: commentNotifications.id })
       .from(commentNotifications).where(eq(commentNotifications.accountId, accountId))
       .orderBy(desc(commentNotifications.createdAt), desc(commentNotifications.id)).limit(1);
-    return { latestId: latest?.id ?? null, unreadCount: await this.unreadCount(accountId) };
+    const [moderation] = await this.database.db.select({ id: commentModerationEvents.id }).from(commentModerationEvents)
+      .where(eq(commentModerationEvents.accountId, accountId))
+      .orderBy(desc(commentModerationEvents.createdAt), desc(commentModerationEvents.id)).limit(1);
+    return { latestId: latest?.id ?? null, moderationId: moderation?.id ?? null, unreadCount: await this.unreadCount(accountId) };
   }
 
   async markRead(accountId: string, notificationId: string) {
@@ -69,5 +73,52 @@ export class CommentNotificationsService {
       .from(commentNotifications).where(and(eq(commentNotifications.id, notificationId), eq(commentNotifications.accountId, accountId))).limit(1);
     if (!existing) throw new NotFoundException('Aviso no disponible.');
     return { id: existing.id, readAt: existing.readAt!.toISOString() };
+  }
+
+  async moderate(accountId: string, actorUserId: string, notificationId: string, action: 'resolve' | 'reopen' | 'delete') {
+    return this.database.db.transaction(async tx => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`comment-moderation:${accountId}:${actorUserId}`}, 0))`);
+      const [notification] = await tx.select().from(commentNotifications)
+        .where(and(eq(commentNotifications.id, notificationId), eq(commentNotifications.accountId, accountId))).for('update').limit(1);
+      if (!notification) throw new NotFoundException('Comentario no disponible.');
+      const [comment] = await tx.select().from(publicShareComments)
+        .where(and(eq(publicShareComments.id, notification.commentId), isNull(publicShareComments.deletedAt))).for('update').limit(1);
+      if (!comment) throw new NotFoundException('Comentario no disponible.');
+      const already = action === 'resolve' ? comment.resolvedAt !== null : action === 'reopen' ? comment.resolvedAt === null : false;
+      if (already) return { id: notificationId, resolvedAt: comment.resolvedAt?.toISOString() ?? null, deleted: false };
+      const [minute] = await tx.select({ total: count() }).from(commentModerationEvents)
+        .where(and(eq(commentModerationEvents.accountId, accountId), eq(commentModerationEvents.actorUserId, actorUserId),
+          gte(commentModerationEvents.createdAt, new Date(Date.now() - 60_000))));
+      const [hour] = await tx.select({ total: count() }).from(commentModerationEvents)
+        .where(and(eq(commentModerationEvents.accountId, accountId), eq(commentModerationEvents.actorUserId, actorUserId),
+          gte(commentModerationEvents.createdAt, new Date(Date.now() - 3_600_000))));
+      if ((minute?.total ?? 0) >= moderationPolicy.minute || (hour?.total ?? 0) >= moderationPolicy.hour)
+        throw new HttpException('Demasiadas acciones de moderación. Inténtalo más tarde.', 429);
+      const now = new Date();
+      const resolvedAt = action === 'resolve' ? now : null;
+      await tx.update(publicShareComments).set(action === 'delete'
+        ? { deletedAt: now, purgeAfter: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000) }
+        : { resolvedAt }).where(eq(publicShareComments.id, comment.id));
+      await tx.update(commentNotifications).set({ readAt: action === 'reopen' ? null : now })
+        .where(eq(commentNotifications.id, notificationId));
+      await tx.insert(commentModerationEvents).values({ accountId, actorUserId, commentId: comment.id,
+        action: action === 'resolve' ? 'resolved' : action === 'reopen' ? 'reopened' : 'deleted' });
+      return { id: notificationId, resolvedAt: action === 'delete' ? comment.resolvedAt?.toISOString() ?? null : resolvedAt?.toISOString() ?? null,
+        deleted: action === 'delete' };
+    });
+  }
+
+  async purgeExpired() {
+    return this.database.db.transaction(async tx => {
+      const expired = await tx.select({ id: publicShareComments.id }).from(publicShareComments)
+        .where(and(isNotNull(publicShareComments.purgeAfter), lt(publicShareComments.purgeAfter, new Date())))
+        .limit(100).for('update', { skipLocked: true });
+      const ids = expired.map(item => item.id);
+      if (!ids.length) return 0;
+      await tx.delete(commentNotifications).where(inArray(commentNotifications.commentId, ids));
+      await tx.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.commentId, ids));
+      await tx.delete(publicShareComments).where(inArray(publicShareComments.id, ids));
+      return ids.length;
+    });
   }
 }

@@ -3,9 +3,10 @@ import { createHash, createHmac } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramShareEvents, diagramShares, diagrams, projects, resources as resourcesTable, resourceVersions } from '../../infrastructure/database/schema.js';
+import { diagramShareEvents, diagramShares, diagrams, projects, publicShareComments, resources as resourcesTable, resourceVersions } from '../../infrastructure/database/schema.js';
 import { UPLOAD_STORAGE, type UploadStorage } from '../uploads/upload.ports.js';
 import { SharePreviewService } from './share-preview.service.js';
+import { commentHasAnchor } from './comment-anchor.js';
 
 const fingerprintPattern = /^[a-f0-9]{64}$/;
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -107,7 +108,12 @@ export class DiagramShareService {
       if (share.fingerprint === current.fingerprint) return { fingerprint: share.fingerprint, revision: share.revision.revision };
       const { diagramName, revision, resources, relations, layout } = current;
       const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
-      await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection: { diagramName, revision, resources, relations, layout }, mediaManifest })
+      const projection = { diagramName, revision, resources, relations, layout };
+      const comments = await tx.select({ id: publicShareComments.id, anchor: publicShareComments.anchor })
+        .from(publicShareComments).where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), isNull(publicShareComments.orphanedAt)));
+      for (const comment of comments) if (!commentHasAnchor(comment.anchor, projection))
+        await tx.update(publicShareComments).set({ orphanedAt: new Date() }).where(eq(publicShareComments.id, comment.id));
+      await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection, mediaManifest })
         .where(eq(diagramShares.id, share.id));
       await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });
       return { fingerprint: current.fingerprint, revision };

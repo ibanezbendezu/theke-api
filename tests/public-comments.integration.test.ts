@@ -2,9 +2,12 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { Database } from '../src/infrastructure/database/database.js';
-import { accounts, commentNotifications, diagramShares, diagrams, projects, publicShareComments, publicShareCommentMutations, users } from '../src/infrastructure/database/schema.js';
+import { accounts, commentModerationEvents, commentNotifications, diagramShareEvents, diagramShares, diagrams, projects, publicShareComments, publicShareCommentMutations, users } from '../src/infrastructure/database/schema.js';
 import { PublicCommentsService } from '../src/modules/diagrams/public-comments.service.js';
 import { CommentNotificationsService } from '../src/modules/diagrams/comment-notifications.service.js';
+import { DiagramShareService } from '../src/modules/diagrams/diagram-share.service.js';
+import type { SharePreviewService } from '../src/modules/diagrams/share-preview.service.js';
+import type { UploadStorage } from '../src/modules/uploads/upload.ports.js';
 
 describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comentarios con PostgreSQL', () => {
   const database = new Database();
@@ -16,10 +19,10 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
   const cookieValue = (setCookie: string) => setCookie.split(';')[0]!;
 
   afterAll(async () => {
-    if (shareIds.length) { await database.db.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.shareId, shareIds)); await database.db.delete(commentNotifications).where(eq(commentNotifications.accountId, accountId)); await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
+    if (shareIds.length) { await database.db.delete(publicShareCommentMutations).where(inArray(publicShareCommentMutations.shareId, shareIds)); await database.db.delete(commentNotifications).where(eq(commentNotifications.accountId, accountId)); await database.db.delete(publicShareComments).where(inArray(publicShareComments.shareId, shareIds)); await database.db.delete(diagramShareEvents).where(inArray(diagramShareEvents.shareId, shareIds)); await database.db.delete(diagramShares).where(inArray(diagramShares.id, shareIds)); }
     if (diagramIds.length) await database.db.delete(diagrams).where(inArray(diagrams.id, diagramIds));
     if (projectIds.length) await database.db.delete(projects).where(inArray(projects.id, projectIds));
-    if (accountId) await database.db.delete(accounts).where(eq(accounts.id, accountId));
+    if (accountId) { await database.db.delete(commentModerationEvents).where(eq(commentModerationEvents.accountId, accountId)); await database.db.delete(accounts).where(eq(accounts.id, accountId)); }
     if (userId) await database.db.delete(users).where(eq(users.id, userId));
     if (previousSecret === undefined) delete process.env.SHARE_TOKEN_SECRET; else process.env.SHARE_TOKEN_SECRET = previousSecret;
     await database.onModuleDestroy();
@@ -110,7 +113,28 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     expect((await comments.list(firstToken, undefined, { id: userId, displayName: 'Investigadora' })).comments.find(item => item.id === first.comment.id)).toMatchObject({ displayName: 'Investigadora', editable: true });
     await expect(comments.edit(firstToken, first.comment.id, { content: 'Ya firmado', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 404 });
     expect(await comments.edit(firstToken, first.comment.id, { content: 'Ya firmado', expectedRevision: 2 }, undefined, undefined, '127.0.0.1', { id: userId, displayName: 'Investigadora' })).toMatchObject({ content: 'Ya firmado', revision: 3 });
+    const item = (await notifications.list(accountId, { commentId: onPoint.comment.id })).items[0]!;
+    await expect(notifications.moderate(randomUUID(), userId, item.id, 'resolve')).rejects.toMatchObject({ status: 404 });
+    await notifications.moderate(accountId, userId, item.id, 'resolve');
+    expect((await notifications.list(accountId, { filter: 'resolved' })).items.some(row => row.commentId === onPoint.comment.id)).toBe(true);
+    expect((await comments.list(firstToken)).comments.find(row => row.id === onPoint.comment.id)?.content).toBe('En este punto');
+    await notifications.moderate(accountId, userId, item.id, 'reopen');
+    expect((await notifications.list(accountId, { filter: 'pending' })).items.some(row => row.commentId === onPoint.comment.id)).toBe(true);
+    await notifications.moderate(accountId, userId, item.id, 'delete');
+    expect((await comments.list(firstToken)).comments.some(row => row.id === onPoint.comment.id)).toBe(false);
+    expect((await notifications.list(accountId, { commentId: onPoint.comment.id })).items).toHaveLength(0);
+    const [removed] = await database.db.select({ purgeAfter: publicShareComments.purgeAfter }).from(publicShareComments).where(eq(publicShareComments.id, onPoint.comment.id));
+    expect(removed?.purgeAfter).toBeInstanceOf(Date);
+    await database.db.update(publicShareComments).set({ purgeAfter: new Date(Date.now() - 1000) }).where(eq(publicShareComments.id, onPoint.comment.id));
+    expect(await notifications.purgeExpired()).toBeGreaterThan(0);
+    expect((await database.db.select({ id: publicShareComments.id }).from(publicShareComments).where(eq(publicShareComments.id, onPoint.comment.id)))).toHaveLength(0);
+    const refreshed = new DiagramShareService(database, { get: async () => ({ ready: true, fingerprint: 'b'.repeat(64), diagramName: 'Mapa', revision: 2,
+      resources: [], relations: [], layout: { nodes: [], edges: [] } }) } as unknown as SharePreviewService, {} as UploadStorage);
+    await refreshed.refresh(accountId, userId, diagramIds[0]!, { fingerprint: 'b'.repeat(64), expectedPublishedFingerprint: 'a'.repeat(64) });
+    const orphan = (await comments.list(firstToken)).comments.find(row => row.id === onResource.comment.id);
+    expect(orphan).toMatchObject({ anchored: false, content: 'Sobre la fuente', anchor: { label: 'Fuente visible' } });
+    expect((await notifications.list(accountId, { filter: 'unanchored' })).items.some(row => row.commentId === onResource.comment.id)).toBe(true);
     await database.db.update(diagramShares).set({ revokedAt: new Date() }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.list(firstToken)).rejects.toMatchObject({ status: 404 });
-  }, 60_000);
+  }, 120_000);
 });

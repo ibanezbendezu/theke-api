@@ -77,7 +77,17 @@ export const publicShareComments = pgTable('public_share_comments', {
   editedAt: timestamp('edited_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  orphanedAt: timestamp('orphaned_at', { withTimezone: true }),
+  purgeAfter: timestamp('purge_after', { withTimezone: true }),
 }, table => [index('public_share_comments_share_created_idx').on(table.shareId, table.createdAt), index('public_share_comments_owner_idx').on(table.shareId, table.ownerHash)]);
+export const commentModerationEvents = pgTable('comment_moderation_events', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  accountId: uuid('account_id').notNull().references(() => accounts.id),
+  actorUserId: uuid('actor_user_id').notNull().references(() => users.id),
+  commentId: uuid('comment_id').notNull(),
+  action: text('action').$type<'resolved' | 'reopened' | 'deleted'>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => [index('comment_moderation_events_account_created_idx').on(table.accountId, table.createdAt)]);
 export const commentNotifications = pgTable('comment_notifications', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),

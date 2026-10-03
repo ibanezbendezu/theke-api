@@ -6,6 +6,7 @@ import { commentNotifications, diagramShares, publicShareComments, publicShareCo
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { publicCommentRatePolicy } from './public-comment-rate-policy.js';
 import { scientificAlias } from './public-comment-alias.js';
+import { commentHasAnchor } from './comment-anchor.js';
 
 type CommentUser = { id: string; displayName: string };
 
@@ -107,7 +108,8 @@ export class PublicCommentsService {
     const rows = await this.database.db.select({ id: publicShareComments.id, ownerHash: publicShareComments.ownerHash,
       authorUserId: publicShareComments.authorUserId, displayName: publicShareComments.displayName, currentProfileName: users.displayName,
       content: publicShareComments.content, anchor: publicShareComments.anchor,
-      revision: publicShareComments.revision, editedAt: publicShareComments.editedAt, createdAt: publicShareComments.createdAt })
+      revision: publicShareComments.revision, editedAt: publicShareComments.editedAt, createdAt: publicShareComments.createdAt,
+      orphanedAt: publicShareComments.orphanedAt })
       .from(publicShareComments).leftJoin(users, eq(publicShareComments.authorUserId, users.id))
       .where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt))).orderBy(desc(publicShareComments.createdAt)).limit(100);
     const [own] = ownerHash ? await this.database.db.select({ displayName: publicShareComments.displayName }).from(publicShareComments)
@@ -116,6 +118,7 @@ export class PublicCommentsService {
       csrfToken: session ? this.csrf(share.id, session) : null,
       comments: rows.map(row => ({ id: row.id, displayName: row.authorUserId && row.currentProfileName ? row.currentProfileName : row.displayName, content: row.content, anchor: row.anchor,
         revision: row.revision, editedAt: row.editedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(),
+        anchored: row.orphanedAt === null && typeof row.anchor.x === 'number' && typeof row.anchor.y === 'number',
         editable: user ? row.authorUserId === user.id : row.authorUserId === null && ownerHash !== null && ownerHash === row.ownerHash })) };
   }
 
@@ -145,10 +148,11 @@ export class PublicCommentsService {
       const shareHour = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.shareId, share.id), gte(publicShareCommentMutations.createdAt, hour)));
       if ((sessionMinute[0]?.total ?? 0) >= publicCommentRatePolicy.sessionMinute || (sessionHour[0]?.total ?? 0) >= publicCommentRatePolicy.sessionHour || (ipMinute[0]?.total ?? 0) >= publicCommentRatePolicy.ipMinute || (ipHour[0]?.total ?? 0) >= publicCommentRatePolicy.ipHour || (shareHour[0]?.total ?? 0) >= publicCommentRatePolicy.shareHour)
         throw new HttpException('Límite de comentarios alcanzado. Inténtalo más tarde.', 429);
-      const [comment] = await tx.insert(publicShareComments).values({ shareId: share.id, ownerHash, authorUserId: user?.id, ipHash, displayName, content, anchor }).returning({ id: publicShareComments.id, createdAt: publicShareComments.createdAt });
+      const orphanedAt = commentHasAnchor(anchor, share.projection) ? null : new Date();
+      const [comment] = await tx.insert(publicShareComments).values({ shareId: share.id, ownerHash, authorUserId: user?.id, ipHash, displayName, content, anchor, orphanedAt }).returning({ id: publicShareComments.id, createdAt: publicShareComments.createdAt });
       await tx.insert(publicShareCommentMutations).values({ shareId: share.id, commentId: comment!.id, ownerHash, ipHash, action: 'created' });
       await tx.insert(commentNotifications).values({ accountId: share.accountId, diagramId: share.diagramId, commentId: comment!.id }).onConflictDoNothing({ target: commentNotifications.commentId });
-      return { comment: { id: comment!.id, displayName, content, anchor, revision: 1, editedAt: null, createdAt: comment!.createdAt.toISOString(), editable: true },
+      return { comment: { id: comment!.id, displayName, content, anchor, anchored: orphanedAt === null, revision: 1, editedAt: null, createdAt: comment!.createdAt.toISOString(), editable: true },
         session: existingSession ? null : session };
     }, { isolationLevel: 'serializable' }));
   }
@@ -201,7 +205,8 @@ export class PublicCommentsService {
       const [saved] = await tx.update(publicShareComments).set({ content, revision: current.revision + 1, updatedAt: editedAt, editedAt })
         .where(eq(publicShareComments.id, current.id)).returning({ revision: publicShareComments.revision });
       await tx.insert(publicShareCommentMutations).values({ shareId: share.id, commentId: current.id, ownerHash, ipHash, action: 'edited' });
-      return { id: current.id, displayName: user?.displayName ?? current.displayName, content, anchor: current.anchor, createdAt: current.createdAt.toISOString(),
+      return { id: current.id, displayName: user?.displayName ?? current.displayName, content, anchor: current.anchor,
+        anchored: current.orphanedAt === null && typeof current.anchor.x === 'number' && typeof current.anchor.y === 'number', createdAt: current.createdAt.toISOString(),
         editedAt: editedAt.toISOString(), revision: saved!.revision, editable: true };
     }, { isolationLevel: 'serializable' }));
   }

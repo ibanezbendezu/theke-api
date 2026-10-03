@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Query, Res, Sse, UseGuards, type MessageEvent } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Query, Res, Sse, UseGuards, type MessageEvent } from '@nestjs/common';
 import { from, timer, distinctUntilChanged, map, switchMap, type Observable } from 'rxjs';
 import { AuthContext, type AuthContextValue } from '../../infrastructure/auth/auth-context.js';
 import { ClerkAuthGuard } from '../../infrastructure/auth/clerk-auth.guard.js';
@@ -22,7 +22,7 @@ export class CommentNotificationsController {
   @Sse('events') events(@AuthContext() auth: AuthContextValue): Observable<MessageEvent> {
     return from(this.accounts.ensureLocalUser(auth)).pipe(
       switchMap(identity => timer(0, 10_000).pipe(switchMap(() => from(this.notifications.signal(identity.account.id))))),
-      distinctUntilChanged((a, b) => a.latestId === b.latestId && a.unreadCount === b.unreadCount),
+      distinctUntilChanged((a, b) => a.latestId === b.latestId && a.moderationId === b.moderationId && a.unreadCount === b.unreadCount),
       map(data => ({ type: 'comments', data }))
     );
   }
@@ -33,5 +33,29 @@ export class CommentNotificationsController {
     response.header('Cache-Control', 'private, no-store');
     const identity = await this.accounts.ensureLocalUser(auth);
     return { data: await this.notifications.markRead(identity.account.id, id) };
+  }
+
+  @Patch(':id/resolve') async resolve(@AuthContext() auth: AuthContextValue,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
+    response.header('Cache-Control', 'private, no-store');
+    const identity = await this.accounts.ensureLocalUser(auth);
+    return { data: await this.notifications.moderate(identity.account.id, identity.user.id, id, 'resolve') };
+  }
+
+  @Patch(':id/reopen') async reopen(@AuthContext() auth: AuthContextValue,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
+    response.header('Cache-Control', 'private, no-store');
+    const identity = await this.accounts.ensureLocalUser(auth);
+    return { data: await this.notifications.moderate(identity.account.id, identity.user.id, id, 'reopen') };
+  }
+
+  @Delete(':id') async delete(@AuthContext() auth: AuthContextValue,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
+    response.header('Cache-Control', 'private, no-store');
+    const identity = await this.accounts.ensureLocalUser(auth);
+    return { data: await this.notifications.moderate(identity.account.id, identity.user.id, id, 'delete') };
   }
 }
