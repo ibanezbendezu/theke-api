@@ -31,10 +31,10 @@ export class PublicSharesController {
       request.log.warn({ event: 'public_comment_rate_limited', policyVersion: publicCommentRatePolicy.version }, 'Public comment rate limited');
     }
   }
-  @Get(':token/comments') @UseGuards(OptionalClerkAuthGuard) async listComments(@Param('token') token: string, @Req() request: FastifyRequest, @AuthContext() auth: AuthContextValue | undefined, @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
+  @Get(':token/comments') @UseGuards(OptionalClerkAuthGuard) async listComments(@Param('token') token: string, @Query('cursor') cursor: string | undefined, @Req() request: FastifyRequest, @AuthContext() auth: AuthContextValue | undefined, @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
     response.header('Cache-Control', 'no-store, max-age=0');
     response.header('Referrer-Policy', 'no-referrer');
-    return { data: await this.comments.list(token, request.headers.cookie, await this.commentUser(auth)) };
+    return { data: await this.comments.list(token, request.headers.cookie, await this.commentUser(auth), cursor) };
   }
   @Post(':token/comments') @HttpCode(201) @UseGuards(OptionalClerkAuthGuard) async createComment(@Param('token') token: string, @Body() body: { displayName?: unknown; content?: unknown; anchor?: unknown }, @Req() request: FastifyRequest, @AuthContext() auth: AuthContextValue | undefined,
     @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {

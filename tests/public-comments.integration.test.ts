@@ -134,6 +134,18 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const orphan = (await comments.list(firstToken)).comments.find(row => row.id === onResource.comment.id);
     expect(orphan).toMatchObject({ anchored: false, content: 'Sobre la fuente', anchor: { label: 'Fuente visible' } });
     expect((await notifications.list(accountId, { filter: 'unanchored' })).items.some(row => row.commentId === onResource.comment.id)).toBe(true);
+    await database.db.insert(publicShareComments).values(Array.from({ length: 101 }, (_, index) => ({
+      shareId: shareIds[0]!, ownerHash: 'pagination-fixture', ipHash: 'pagination-fixture', displayName: 'Prueba',
+      content: `Página ${index}`, createdAt: new Date(Date.now() + (index + 1) * 1000),
+    })));
+    const firstPage = await comments.list(firstToken);
+    expect(firstPage.comments).toHaveLength(100);
+    expect(firstPage.nextCursor).toBe(firstPage.comments[99]?.id);
+    const secondPage = await comments.list(firstToken, undefined, undefined, firstPage.nextCursor!);
+    expect(secondPage.comments.length).toBeGreaterThan(0);
+    expect(secondPage.comments.some(row => row.id === firstPage.comments[99]?.id)).toBe(false);
+    expect(secondPage.comments.some(row => row.content === 'Primero corregido' || row.content === 'Ya firmado')).toBe(true);
+    await expect(comments.list(firstToken, undefined, undefined, 'bad-cursor')).rejects.toMatchObject({status: 400});
     await database.db.update(diagramShares).set({ revokedAt: new Date() }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.list(firstToken)).rejects.toMatchObject({ status: 404 });
   }, 120_000);

@@ -46,6 +46,7 @@ export const diagramShares = pgTable('diagram_shares', {
       layout?: { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[]; background?: { variant: string; tone: string } } }>().notNull(),
   mediaManifest: jsonb('media_manifest').$type<Record<string, { versionId: string; storageKey: string; mediaType: string; filename: string }>>().notNull().default({}),
   commentsEnabled: boolean('comments_enabled').notNull().default(true),
+  relationLabelsFrozenAt: timestamp('relation_labels_frozen_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, table => [uniqueIndex('diagram_shares_account_key_uq').on(table.accountId, table.idempotencyKey), uniqueIndex('diagram_shares_active_diagram_uq').on(table.diagramId).where(isNull(table.revokedAt))]);

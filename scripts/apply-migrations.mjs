@@ -33,6 +33,7 @@ const migrations = [
   ['public_share_comments.author_user_id', '../drizzle/0027_public_comment_accounts.sql'],
   ['comment_notifications', '../drizzle/0028_comment_notifications.sql'],
   ['comment_moderation_events', '../drizzle/0029_comment_moderation.sql'],
+  ['diagram_shares.relation_labels_frozen_at', '../drizzle/0030_freeze_public_relation_labels.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

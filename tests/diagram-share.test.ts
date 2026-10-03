@@ -95,16 +95,15 @@ describe('publicación de Compartidos', () => {
     await expect(missing.getPublic(token)).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('recupera el nombre de tipos personalizados en compartidos anteriores', async () => {
+  it('usa la etiqueta fijada y nunca consulta el tipo privado al leer un Compartido', async () => {
     const token = 'a'.repeat(43);
     const typeId = '44444444-4444-4444-8444-444444444444';
-    const legacyRelation = { id: 'relation', typeKey: `custom:${typeId}`, label: null };
-    const limit = vi.fn(async () => [{ accountId: 'owner', projection: { ...projection, relations: [legacyRelation] }, commentsEnabled: true }]);
-    const where = vi.fn(async () => [{ id: typeId, label: 'Contextualiza smoke' }]);
-    const select = vi.fn().mockReturnValueOnce({ from: () => ({ where: () => ({ limit }) }) })
-      .mockReturnValueOnce({ from: () => ({ where }) });
+    const relation = { id: 'relation', typeKey: `custom:${typeId}`, typeLabel: 'Contextualiza smoke', label: null };
+    const limit = vi.fn(async () => [{ accountId: 'owner', projection: { ...projection, relations: [relation] }, commentsEnabled: true }]);
+    const select = vi.fn(() => ({ from: () => ({ where: () => ({ limit }) }) }));
     const service = new DiagramShareService({ db: { select } } as never, {} as never, { read: vi.fn() } as never);
-    expect((await service.getPublic(token)).relations).toEqual([{ ...legacyRelation, typeLabel: 'Contextualiza smoke' }]);
+    expect((await service.getPublic(token)).relations).toEqual([relation]);
+    expect(select).toHaveBeenCalledTimes(1);
   });
 
   it('solo entrega bytes del archivo fijado y nunca la clave de almacenamiento', async () => {

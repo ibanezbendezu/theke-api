@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, relationTypes, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
+import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { commonRelationTypes } from '../relations/relation.service.js';
 import { publicCommentRatePolicy } from './public-comment-rate-policy.js';
@@ -12,6 +12,7 @@ import { commentHasAnchor } from './comment-anchor.js';
 type CommentUser = { id: string; displayName: string };
 
 const shareTokenPattern = /^[A-Za-z0-9_-]{43}$/;
+const commentCursorPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const cookieName = '__Host-theke-comment';
 const ageSeconds = 30 * 24 * 60 * 60;
 
@@ -102,8 +103,9 @@ export class PublicCommentsService {
     throw new BadRequestException('Selecciona un punto, Recurso o Relación para comentar.');
   }
 
-  async list(token: string, cookieHeader?: string, user?: CommentUser) {
+  async list(token: string, cookieHeader?: string, user?: CommentUser, cursor?: string) {
     const share = await this.share(token);
+    if (cursor && !commentCursorPattern.test(cursor)) throw new BadRequestException('Cursor de comentarios inválido.');
     const session = this.session(cookieHeader);
     const ownerHash = session ? this.owner(share.id, session) : null;
     const rows = await this.database.db.select({ id: publicShareComments.id, ownerHash: publicShareComments.ownerHash,
@@ -112,12 +114,17 @@ export class PublicCommentsService {
       revision: publicShareComments.revision, editedAt: publicShareComments.editedAt, createdAt: publicShareComments.createdAt,
       orphanedAt: publicShareComments.orphanedAt })
       .from(publicShareComments).leftJoin(users, eq(publicShareComments.authorUserId, users.id))
-      .where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt))).orderBy(desc(publicShareComments.createdAt)).limit(100);
+      .where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), cursor
+        ? sql`(${publicShareComments.createdAt}, ${publicShareComments.id}) < (SELECT created_at, id FROM public_share_comments WHERE id = ${cursor}::uuid AND share_id = ${share.id} AND deleted_at IS NULL)`
+        : undefined))
+      .orderBy(desc(publicShareComments.createdAt), desc(publicShareComments.id)).limit(101);
+    const page = rows.slice(0, 100);
     const [own] = ownerHash ? await this.database.db.select({ displayName: publicShareComments.displayName }).from(publicShareComments)
       .where(and(eq(publicShareComments.shareId, share.id), eq(publicShareComments.ownerHash, ownerHash))).limit(1) : [];
     return { identity: user ? { displayName: user.displayName } : own ? { displayName: own.displayName } : null,
       csrfToken: session ? this.csrf(share.id, session) : null,
-      comments: rows.map(row => ({ id: row.id, displayName: row.authorUserId && row.currentProfileName ? row.currentProfileName : row.displayName, content: row.content, anchor: row.anchor,
+      nextCursor: rows.length > 100 ? page.at(-1)!.id : null,
+      comments: page.map(row => ({ id: row.id, displayName: row.authorUserId && row.currentProfileName ? row.currentProfileName : row.displayName, content: row.content, anchor: row.anchor,
         revision: row.revision, editedAt: row.editedAt?.toISOString() ?? null, createdAt: row.createdAt.toISOString(),
         anchored: row.orphanedAt === null && typeof row.anchor.x === 'number' && typeof row.anchor.y === 'number',
         editable: user ? row.authorUserId === user.id : row.authorUserId === null && ownerHash !== null && ownerHash === row.ownerHash })) };
@@ -135,10 +142,7 @@ export class PublicCommentsService {
       if (existingSession && csrfToken !== this.csrf(share.id, existingSession)) throw new ForbiddenException('Verificación de comentario no válida.');
       const requestedRelationId = input.anchor && typeof input.anchor === 'object' && 'relationId' in input.anchor ? input.anchor.relationId : null;
       const projectedRelation = share.projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === requestedRelationId) as { typeKey?: string; typeLabel?: string } | undefined;
-      const legacyCustomId = projectedRelation && !projectedRelation.typeLabel && projectedRelation.typeKey?.startsWith('custom:') ? projectedRelation.typeKey.slice(7) : null;
-      const [legacyType] = legacyCustomId ? await tx.select({ label: relationTypes.label }).from(relationTypes)
-        .where(and(eq(relationTypes.accountId, share.accountId), eq(relationTypes.id, legacyCustomId))).limit(1) : [];
-      const legacyTypeLabel = legacyType?.label ?? commonRelationTypes.find(type => type.key === projectedRelation?.typeKey)?.label;
+      const legacyTypeLabel = commonRelationTypes.find(type => type.key === projectedRelation?.typeKey)?.label;
       const anchor = this.resolveAnchor(input.anchor, share.projection, legacyTypeLabel);
       const session = existingSession ?? this.newSession();
       const ownerHash = user ? this.registeredOwner(share.id, user.id) : this.owner(share.id, session);
