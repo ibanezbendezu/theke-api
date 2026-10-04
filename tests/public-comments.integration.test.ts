@@ -66,6 +66,11 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     expect(await comments.list(secondToken, cookie)).toMatchObject({ identity: null, comments: [] });
     const otherShare = await comments.create(secondToken, { displayName: 'Otro nombre', content: 'Otro mapa' }, cookie, (await comments.list(secondToken, cookie)).csrfToken!, '127.0.0.2');
     expect(otherShare.session).toBeNull();
+    const secondNotification = (await notifications.list(accountId, {commentId: second.comment.id})).items[0]!;
+    await notifications.markRead(accountId, secondNotification.id);
+    expect((await notifications.list(accountId, {diagramId: diagramIds[0]})).unreadCount).toBe(0);
+    expect((await notifications.list(accountId, {diagramId: diagramIds[1]})).unreadCount).toBe(1);
+    expect((await notifications.list(accountId, {})).unreadCount).toBe(1);
     expect((await comments.list(secondToken, cookie)).identity).toEqual({ displayName: otherShare.comment.displayName });
     const lost = await comments.list(firstToken);
     expect(lost).toMatchObject({ identity: null });

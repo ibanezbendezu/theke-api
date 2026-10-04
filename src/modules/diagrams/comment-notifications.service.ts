@@ -37,7 +37,7 @@ export class CommentNotificationsService {
       .leftJoin(users, eq(publicShareComments.authorUserId, users.id))
       .where(and(...conditions)).orderBy(desc(commentNotifications.createdAt), desc(commentNotifications.id))
       .limit(21).offset((page - 1) * 20);
-    const unreadCount = await this.unreadCount(accountId);
+    const unreadCount = await this.unreadCount(accountId, input.diagramId);
     return { items: rows.slice(0, 20).map(row => ({
       id: row.id, commentId: row.commentId, diagramId: row.diagramId, projectId: row.projectId,
       diagramName: row.diagramName, displayName: row.profileName ?? row.displayName,
@@ -47,11 +47,12 @@ export class CommentNotificationsService {
     })), page, hasMore: rows.length > 20, unreadCount };
   }
 
-  async unreadCount(accountId: string) {
+  async unreadCount(accountId: string, diagramId?: string) {
     const [row] = await this.database.db.select({ total: count() }).from(commentNotifications)
       .innerJoin(publicShareComments, eq(commentNotifications.commentId, publicShareComments.id))
       .where(and(eq(commentNotifications.accountId, accountId), isNull(commentNotifications.readAt),
-        isNull(publicShareComments.resolvedAt), isNull(publicShareComments.deletedAt)));
+        isNull(publicShareComments.resolvedAt), isNull(publicShareComments.deletedAt),
+        diagramId ? eq(commentNotifications.diagramId, diagramId) : undefined));
     return row?.total ?? 0;
   }
 
