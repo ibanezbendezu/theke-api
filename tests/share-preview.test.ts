@@ -152,6 +152,13 @@ describe('preview privado de diagramas', () => {
     expect(JSON.stringify(preview)).not.toMatch(/privateNote|unsafeColor|private\.example|no publicar/);
   });
 
+  it('conserva el fondo transparente y el contorno de grosor cero en formas públicas', async () => {
+    const shape = { id: 'visual-shape', type: 'annotation', position: { x: 20, y: 30 },
+      data: { kind: 'shape', shape: 'rectangle', backgroundColor: 'transparent', thickness: 0 } };
+    const preview = await setup({ nodes: [shape], edges: [], resourceRows: [], relationRows: [] }).service.get('owner', 'diagram');
+    expect(preview.layout.nodes[0]).toMatchObject({ annotationKind: 'shape', backgroundColor: 'transparent', thickness: 0 });
+  });
+
   it('cambia la huella al editar una anotación y rechaza elementos visuales desconocidos', async () => {
     const annotation = { id: 'a1', type: 'annotation', position: { x: 1, y: 2 }, data: { kind: 'text', text: 'Antes' } };
     const first = await setup({ nodes: [nodes[0], annotation], edges: [] }).service.get('owner', 'diagram');

@@ -155,10 +155,10 @@ export class SharePreviewService {
           letterSpacing: number(data.letterSpacing, -3, 20), lineHeight: number(data.lineHeight, 0.8, 3),
           opacity: number(data.opacity, 0, 100), shadow: ['none', 'soft', 'strong'].includes(String(data.shadow)) ? data.shadow : undefined,
           outlineWidth: number(data.outlineWidth, 0, 12), outlineColor: solidColor(data.outlineColor),
-          backgroundColor: solidColor(data.backgroundColor), cornerRadius: number(data.cornerRadius, 0, 40),
+          backgroundColor: data.kind === 'shape' && data.backgroundColor === 'transparent' ? 'transparent' : solidColor(data.backgroundColor), cornerRadius: number(data.cornerRadius, 0, 40),
           shape: ['rectangle', 'ellipse'].includes(String(data.shape)) ? data.shape : undefined,
           color: ['default', 'primary', 'muted'].includes(String(data.color)) ? data.color : undefined,
-          thickness: number(data.thickness, 1, 40), dash: ['solid', 'dashed'].includes(String(data.dash)) ? data.dash : undefined,
+          thickness: number(data.thickness, data.kind === 'shape' ? 0 : 1, 40), dash: ['solid', 'dashed'].includes(String(data.dash)) ? data.dash : undefined,
           x1: number(data.x1, 0, 100), y1: number(data.y1, 0, 100), x2: number(data.x2, 0, 100), y2: number(data.y2, 0, 100),
         } : type === 'text' ? { text: text(data.text, 2000) } : type === 'shape' ? {
           shapeType: ['rectangle', 'circle', 'polygon', 'line'].includes(String(data.shapeType)) ? data.shapeType : 'rectangle',
