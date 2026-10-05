@@ -8,12 +8,14 @@ import { DiagramService } from './diagram.service.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const supportedMedia = new Set(['application/pdf', 'text/plain', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm']);
-type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; width?: unknown; height?: unknown; data?: Record<string, unknown> };
+type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; width?: unknown; height?: unknown; zIndex?: unknown; data?: Record<string, unknown> };
 type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; sourceHandle?: unknown; targetHandle?: unknown; data?: Record<string, unknown> };
 const nodeTypes = new Set(['resource', 'folder', 'container', 'annotation', 'text', 'shape', 'link', 'media', 'document', 'audio']);
 const text = (value: unknown, max = 500) => typeof value === 'string' ? value.slice(0, max) : undefined;
 const number = (value: unknown, min: number, max: number) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : undefined;
 const color = (value: unknown) => typeof value === 'string' && (/^#[0-9a-f]{3,8}$/i.test(value) || /^var\(--color-[a-z-]+\)$/.test(value)) ? value : undefined;
+const solidColor = (value: unknown) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : undefined;
+const boolean = (value: unknown) => typeof value === 'boolean' ? value : undefined;
 const url = (value: unknown) => { if (typeof value !== 'string') return undefined; try { const parsed = new URL(value); return ['https:', 'http:'].includes(parsed.protocol) ? parsed.href.slice(0, 2048) : undefined; } catch { return undefined; } };
 
 @Injectable()
@@ -137,13 +139,23 @@ export class SharePreviewService {
         const data = node.data ?? {}; const type = String(node.type);
         const common = { id: `n${index}`, type, x: positionOf(node).x, y: positionOf(node).y,
           width: number(node.width, 20, 5000), height: number(node.height, 4, 5000),
-          caption: text(data.caption, 160), accent: ['default', 'primary', 'muted'].includes(String(data.accent)) ? data.accent : undefined };
+          caption: text(data.caption, 160), accent: ['default', 'primary', 'muted'].includes(String(data.accent)) ? data.accent : undefined,
+          zIndex: number(node.zIndex, -10000, 10000) };
         const specific = type === 'resource' ? { resourceId: data.resourceId } : type === 'folder' ? {
           folderName: folderById.get(data.folderId as string)?.name,
           folderCount: folderCounts.filter(row => row.folderId === data.folderId).length,
         } : type === 'container' ? { label: text(data.label, 160), color: color(data.color) } : type === 'annotation' ? {
           annotationKind: ['text', 'shape', 'line'].includes(String(data.kind)) ? data.kind : 'text', text: text(data.text, 2000),
-          fontSize: number(data.fontSize, 8, 96), align: ['left', 'center', 'right'].includes(String(data.align)) ? data.align : undefined,
+          fontSize: number(data.fontSize, 8, 144), align: ['left', 'center', 'right', 'justify'].includes(String(data.align)) ? data.align : undefined,
+          fontFamily: ['system', 'arial', 'verdana', 'georgia', 'times', 'courier'].includes(String(data.fontFamily)) ? data.fontFamily : undefined,
+          textColor: solidColor(data.textColor), bold: boolean(data.bold), italic: boolean(data.italic),
+          underline: boolean(data.underline), strike: boolean(data.strike),
+          textCase: ['normal', 'upper', 'lower'].includes(String(data.textCase)) ? data.textCase : undefined,
+          listStyle: ['none', 'bullet', 'number'].includes(String(data.listStyle)) ? data.listStyle : undefined,
+          letterSpacing: number(data.letterSpacing, -3, 20), lineHeight: number(data.lineHeight, 0.8, 3),
+          opacity: number(data.opacity, 0, 100), shadow: ['none', 'soft', 'strong'].includes(String(data.shadow)) ? data.shadow : undefined,
+          outlineWidth: number(data.outlineWidth, 0, 12), outlineColor: solidColor(data.outlineColor),
+          backgroundColor: solidColor(data.backgroundColor), cornerRadius: number(data.cornerRadius, 0, 40),
           shape: ['rectangle', 'ellipse'].includes(String(data.shape)) ? data.shape : undefined,
           color: ['default', 'primary', 'muted'].includes(String(data.color)) ? data.color : undefined,
           thickness: number(data.thickness, 1, 40), dash: ['solid', 'dashed'].includes(String(data.dash)) ? data.dash : undefined,
