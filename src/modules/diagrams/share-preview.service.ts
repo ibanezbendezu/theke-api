@@ -153,7 +153,7 @@ export class SharePreviewService {
           textCase: ['normal', 'upper', 'lower'].includes(String(data.textCase)) ? data.textCase : undefined,
           listStyle: ['none', 'bullet', 'number'].includes(String(data.listStyle)) ? data.listStyle : undefined,
           letterSpacing: number(data.letterSpacing, -3, 20), lineHeight: number(data.lineHeight, 0.8, 3),
-          opacity: number(data.opacity, 0, 100), shadow: ['none', 'soft', 'strong'].includes(String(data.shadow)) ? data.shadow : undefined,
+          opacity: number(data.opacity, 0, 100), rotation: number(data.rotation, 0, 359), shadow: ['none', 'soft', 'strong'].includes(String(data.shadow)) ? data.shadow : undefined,
           outlineWidth: number(data.outlineWidth, 0, 12), outlineColor: solidColor(data.outlineColor),
           backgroundColor: data.kind === 'shape' && data.backgroundColor === 'transparent' ? 'transparent' : solidColor(data.backgroundColor), cornerRadius: number(data.cornerRadius, 0, 40),
           shape: ['rectangle', 'ellipse'].includes(String(data.shape)) ? data.shape : undefined,

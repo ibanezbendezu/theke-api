@@ -141,14 +141,14 @@ describe('preview privado de diagramas', () => {
     const annotation = { id: 'visual-text', type: 'annotation', position: { x: 60, y: 90 }, zIndex: 4,
       data: { kind: 'text', text: 'Uno\nDos', fontFamily: 'georgia', fontSize: 32, textColor: '#d44c47', bold: true,
         italic: true, underline: true, strike: true, textCase: 'upper', align: 'justify', listStyle: 'number',
-        letterSpacing: 1.5, lineHeight: 1.8, opacity: 65, shadow: 'soft', outlineWidth: 2,
+        letterSpacing: 1.5, lineHeight: 1.8, opacity: 65, rotation: 45, shadow: 'soft', outlineWidth: 2,
         outlineColor: '#222222', backgroundColor: '#ffffff', cornerRadius: 12,
         privateNote: 'no publicar', unsafeColor: 'url(https://private.example)' } };
     const preview = await setup({ nodes: [annotation], edges: [], resourceRows: [], relationRows: [] }).service.get('owner', 'diagram');
     expect(preview.layout.nodes[0]).toMatchObject({ type: 'annotation', zIndex: 4, text: 'Uno\nDos', fontFamily: 'georgia',
       fontSize: 32, textColor: '#d44c47', bold: true, italic: true, underline: true, strike: true,
       textCase: 'upper', align: 'justify', listStyle: 'number', letterSpacing: 1.5, lineHeight: 1.8,
-      opacity: 65, shadow: 'soft', outlineWidth: 2, outlineColor: '#222222', backgroundColor: '#ffffff', cornerRadius: 12 });
+      opacity: 65, rotation: 45, shadow: 'soft', outlineWidth: 2, outlineColor: '#222222', backgroundColor: '#ffffff', cornerRadius: 12 });
     expect(JSON.stringify(preview)).not.toMatch(/privateNote|unsafeColor|private\.example|no publicar/);
   });
 
