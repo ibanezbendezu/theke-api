@@ -34,6 +34,8 @@ const migrations = [
   ['comment_notifications', '../drizzle/0028_comment_notifications.sql'],
   ['comment_moderation_events', '../drizzle/0029_comment_moderation.sql'],
   ['diagram_shares.relation_labels_frozen_at', '../drizzle/0030_freeze_public_relation_labels.sql'],
+  ['relations.diagram_id', '../drizzle/0031_map_scoped_relations.sql'],
+  ['relations_diagram_active_idx', '../drizzle/0032_retire_unshown_relations.sql'],
 ];
 try {
   for (const [table, path] of migrations) {

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramRevisions, diagrams, folders, projectResources, projects, relations, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, folders, projectResources, projects, relationEvidence, relations, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, background: { variant: 'dots' as const, tone: 'default' as const } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
@@ -44,7 +44,7 @@ export class DiagramService {
     if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) throw new BadRequestException('Revisión esperada inválida.');
     if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey.trim() || input.idempotencyKey.length > 120) throw new BadRequestException('Falta la clave de idempotencia.');
     return withSerializationRetry(() => this.database.db.transaction(async tx => {
-      const [current] = await tx.select({ revision: diagrams.revision, archivedAt: diagrams.archivedAt, projectId: diagrams.projectId }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, id), isNull(diagrams.deletedAt))).for('update').limit(1);
+      const [current] = await tx.select({ revision: diagrams.revision, document: diagrams.document, archivedAt: diagrams.archivedAt, projectId: diagrams.projectId }).from(diagrams).innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt))).where(and(eq(diagrams.id, id), isNull(diagrams.deletedAt))).for('update').limit(1);
       if (!current) throw new NotFoundException('Diagrama no encontrado.');
       const [prior] = await tx.select({ revision: diagramRevisions.revision, document: diagramRevisions.document, createdAt: diagramRevisions.createdAt }).from(diagramRevisions).where(and(eq(diagramRevisions.diagramId, id), eq(diagramRevisions.idempotencyKey, input.idempotencyKey as string))).limit(1);
       if (prior) { if (!isDeepStrictEqual(prior.document, document)) throw new ConflictException('La clave de idempotencia ya se usó para otro documento.'); return { revision: prior.revision, document: prior.document, updatedAt: prior.createdAt }; }
@@ -62,7 +62,7 @@ export class DiagramService {
       const relationIds = [...new Set(relationEdges.map(edge => edge.data.relationId))];
       if (relationIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de Relación inválida.');
       if (relationIds.length) {
-        const ownedRelations = await tx.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction }).from(relations).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), inArray(relations.id, relationIds))).for('share');
+        const ownedRelations = await tx.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction, deletedAt: relations.deletedAt }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.diagramId, id), inArray(relations.id, relationIds))).for('update');
         if (ownedRelations.length !== relationIds.length) throw new NotFoundException('Relación del Canvas no encontrada.');
         const relationById = new Map(ownedRelations.map(relation => [relation.id, relation]));
         const nodeById = new Map(document.nodes.map(node => [(node as { id: string }).id, node as { type?: string; data?: { resourceId?: unknown } }]));
@@ -78,6 +78,10 @@ export class DiagramService {
         }
       }
       const revision = current.revision + 1; const updatedAt = new Date();
+      const previousRelationIds = [...new Set(current.document.edges.map(edge => (edge as { data?: { relationId?: unknown } }).data?.relationId).filter((value): value is string => typeof value === 'string'))];
+      const removedRelationIds = previousRelationIds.filter(relationId => !relationIds.includes(relationId));
+      if (removedRelationIds.length) await tx.update(relations).set({ deletedAt: updatedAt, purgeAfter: new Date(updatedAt.getTime() + 30 * 86_400_000), updatedAt }).where(and(eq(relations.diagramId, id), isNull(relations.deletedAt), inArray(relations.id, removedRelationIds)));
+      if (relationIds.length) await tx.update(relations).set({ deletedAt: null, purgeAfter: null, updatedAt }).where(and(eq(relations.diagramId, id), isNotNull(relations.deletedAt), inArray(relations.id, relationIds)));
       await tx.update(diagrams).set({ document, revision, updatedAt }).where(eq(diagrams.id, id));
       await tx.insert(diagramRevisions).values({ diagramId: id, revision, idempotencyKey: input.idempotencyKey as string, document, createdAt: updatedAt });
       return { revision, document, updatedAt };
@@ -115,7 +119,21 @@ export class DiagramService {
         return { ...item, data: { ...item.data, folderId: folderIds.get(item.data.folderId) ?? item.data.folderId, projectId: project!.id } };
       });
       const [copy] = await tx.insert(diagrams).values({ projectId: project!.id, name, document }).returning();
-      return copy!;
+      const relationIds = [...new Set(document.edges.map(edge => (edge as { data?: { relationId?: unknown } }).data?.relationId).filter((value): value is string => typeof value === 'string'))];
+      if (relationIds.length) {
+        const originals = await tx.select().from(relations).where(and(eq(relations.diagramId, id), inArray(relations.id, relationIds)));
+        const ids = new Map(originals.map(relation => [relation.id, randomUUID()]));
+        await tx.insert(relations).values(originals.map(relation => ({ ...relation, id: ids.get(relation.id)!, diagramId: copy!.id })));
+        const evidence = await tx.select().from(relationEvidence).where(inArray(relationEvidence.relationId, relationIds));
+        if (evidence.length) await tx.insert(relationEvidence).values(evidence.filter(item => ids.has(item.relationId)).map(item => ({ ...item, id: randomUUID(), relationId: ids.get(item.relationId)! })));
+        document.edges = document.edges.map(edge => {
+          const item = edge as { data?: { relationId?: string } };
+          const replacement = item.data?.relationId ? ids.get(item.data.relationId) : undefined;
+          return replacement ? { ...item, data: { ...item.data, relationId: replacement } } : edge;
+        });
+        await tx.update(diagrams).set({ document }).where(eq(diagrams.id, copy!.id));
+      }
+      return { ...copy!, document };
     });
   }
   async restore(accountId: string, id: string) {

@@ -1,14 +1,13 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Database } from '../src/infrastructure/database/database.js';
-import { accounts, diagramRevisions, diagrams, memberships, operationReceipts, projects, relationEvidence, relationTypes, relations, resources, resourceVersions, users } from '../src/infrastructure/database/schema.js';
+import { accounts, diagramRevisions, diagrams, memberships, operationReceipts, projectResources, projects, relationEvidence, relationTypes, relations, resources, resourceVersions, users } from '../src/infrastructure/database/schema.js';
 import { AccountService } from '../src/modules/account/account.service.js';
 import { ProjectService } from '../src/modules/projects/project.service.js';
 import { NoteService } from '../src/modules/resources/note.service.js';
 import { ResourceKnowledgeRepository } from '../src/modules/resources/resource-knowledge.repository.js';
 import { DiagramService } from '../src/modules/diagrams/diagram.service.js';
 import { RelationService } from '../src/modules/relations/relation.service.js';
-import { ImpactService } from '../src/modules/lifecycle/impact.service.js';
 
 describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', () => {
   const database = new Database();
@@ -17,13 +16,13 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
   const notes = new NoteService(database, new ResourceKnowledgeRepository(database));
   const diagramService = new DiagramService(database);
   const service = new RelationService(database);
-  const impacts = new ImpactService(database);
   let userId = ''; let accountId = ''; let foreignUserId = ''; let foreignAccountId = '';
   const diagramIds: string[] = [];
   const projectIds: string[] = []; const resourceIds: string[] = [];
   afterAll(async () => {
     if (accountId) { await database.db.delete(operationReceipts).where(eq(operationReceipts.accountId, accountId)); const ownedRelations = await database.db.select({ id: relations.id }).from(relations).where(eq(relations.accountId, accountId)); for (const relation of ownedRelations) await database.db.delete(relationEvidence).where(eq(relationEvidence.relationId, relation.id)); await database.db.delete(relations).where(eq(relations.accountId, accountId)); await database.db.delete(relationTypes).where(eq(relationTypes.accountId, accountId)); }
     for (const diagramId of diagramIds) { await database.db.delete(diagramRevisions).where(eq(diagramRevisions.diagramId, diagramId)); await database.db.delete(diagrams).where(eq(diagrams.id, diagramId)); }
+    for (const projectId of projectIds) await database.db.delete(projectResources).where(eq(projectResources.projectId, projectId));
     for (const resourceId of resourceIds) { await database.db.update(resources).set({ currentVersionId: null }).where(eq(resources.id, resourceId)); await database.db.delete(resourceVersions).where(eq(resourceVersions.resourceId, resourceId)); await database.db.delete(resources).where(eq(resources.id, resourceId)); }
     for (const projectId of projectIds) await database.db.delete(projects).where(eq(projects.id, projectId));
     if (userId) { await database.db.delete(memberships).where(eq(memberships.userId, userId)); await database.db.delete(accounts).where(eq(accounts.personalOwnerUserId, userId)); await database.db.delete(users).where(eq(users.id, userId)); }
@@ -31,7 +30,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     await database.onModuleDestroy();
   }, 90_000);
 
-  it('crea relación canónica y arista local sin duplicar, y limita tipos personalizados al proyecto', async () => {
+  it('acota relaciones al mapa, recupera eliminaciones y copia relaciones con su evidencia', async () => {
     const identity = await accountsService.ensureLocalUser({ clerkUserId: `relation_${crypto.randomUUID()}` }); userId = identity.user.id; accountId = identity.account.id;
     const project = await projectsService.create(accountId, 'Relaciones'); projectIds.push(project.id);
     const another = await projectsService.create(accountId, 'Otro proyecto'); projectIds.push(another.id);
@@ -44,6 +43,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     const result = await service.create(accountId, userId, diagram.id, create);
     expect(result.revision).toBe(2); expect(result.edgeId).not.toBe(result.relationId);
     expect((result.document.edges as { data: { relationId: string } }[])[0].data.relationId).toBe(result.relationId);
+    expect((result.document.edges[0] as { data: { offset: { x: number; y: number } } }).data.offset.y).not.toBe(0);
     expect((await service.create(accountId, userId, diagram.id, create)).relationId).toBe(result.relationId);
     await expect(service.create(accountId, userId, diagram.id, { ...create, expectedRevision: 2, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('equivalente');
     const reused = await service.create(accountId, userId, diagram.id, { ...create, expectedRevision: 2, idempotencyKey: crypto.randomUUID(), reuseExisting: true }); expect(reused.revision).toBe(2);
@@ -69,28 +69,19 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('relaciones con PostgreSQL', (
     await expect(service.update(accountId, userId, result.relationId, { label: '', explanation: '', provenance: '', evidenceStatus: 'confirmed', evidence: [{ resourceId: foreign.id }], expectedRevision: 2 })).rejects.toThrow('no encontrado en esta Cuenta');
     const secondDiagram = await diagramService.get(accountId, (await diagramService.list(accountId, another.id, 'active'))[0]!.id); diagramIds.push(secondDiagram.id); await diagramService.rename(accountId, secondDiagram.id, 'Segundo mapa');
     await diagramService.save(accountId, secondDiagram.id, { document, expectedRevision: 0, idempotencyKey: crypto.randomUUID() });
-    const available = await service.available(accountId, secondDiagram.id);
-    expect(available.map(item => item.relationId)).toContain(result.relationId);
-    const beforeShow = await impacts.get(accountId, 'relation', result.relationId, 'delete');
-    expect(beforeShow.affected.placements).toBe(1);
-    const reusedEdge = { ...(result.document.edges[0] as object), id: crypto.randomUUID(), hidden: true };
-    await diagramService.save(accountId, secondDiagram.id, { document: { ...document, edges: [reusedEdge] }, expectedRevision: 1, idempotencyKey: crypto.randomUUID() });
-    expect((await service.available(accountId, secondDiagram.id)).some(item => item.relationId === result.relationId)).toBe(false);
-    expect((await service.get(accountId, result.relationId)).evidence[0]?.excerpt).toBe('Dato relevante');
-    await expect(impacts.execute(accountId, 'relation', result.relationId, { action: 'delete', impactVersion: beforeShow.impactVersion, confirmation: beforeShow.confirmationPhrase, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('impacto cambió');
-    const withTwoUses = await impacts.get(accountId, 'relation', result.relationId, 'delete');
-    expect(withTwoUses.affected.placements).toBe(2); expect(withTwoUses.locations.some(location => location.includes('Segundo mapa'))).toBe(true);
-    await expect(impacts.execute(accountId, 'relation', result.relationId, { action: 'delete', impactVersion: withTwoUses.impactVersion, confirmation: withTwoUses.confirmationPhrase, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('no está habilitada');
-    const archive = await impacts.get(accountId, 'relation', result.relationId, 'archive');
-    await impacts.execute(accountId, 'relation', result.relationId, { action: 'archive', impactVersion: archive.impactVersion, confirmation: archive.confirmationPhrase, idempotencyKey: crypto.randomUUID() });
-    expect((await service.get(accountId, result.relationId)).archivedAt).not.toBeNull();
-    expect((await service.available(accountId, secondDiagram.id)).some(item => item.relationId === result.relationId)).toBe(false);
-    await service.restore(accountId, result.relationId);
-    await diagramService.save(accountId, secondDiagram.id, { document, expectedRevision: 2, idempotencyKey: crypto.randomUUID() });
-    await diagramService.save(accountId, diagram.id, { document: { ...document, edges: [custom.document.edges[1]] }, expectedRevision: 4, idempotencyKey: crypto.randomUUID() });
-    const noUses = await impacts.get(accountId, 'relation', result.relationId, 'delete');
-    expect(noUses.deletionAllowed).toBe(true);
-    await impacts.execute(accountId, 'relation', result.relationId, { action: 'delete', impactVersion: noUses.impactVersion, confirmation: noUses.confirmationPhrase, idempotencyKey: crypto.randomUUID() });
+    expect(await service.available(accountId, secondDiagram.id)).toEqual([]);
+    const independent = await service.create(accountId, userId, secondDiagram.id, { ...create, expectedRevision: 1, idempotencyKey: crypto.randomUUID() });
+    expect(independent.relationId).not.toBe(result.relationId);
+    await expect(diagramService.save(accountId, secondDiagram.id, { document: { ...document, edges: [result.document.edges[0]] }, expectedRevision: 2, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('no encontrada');
+    const removed = await diagramService.save(accountId, diagram.id, { document: { ...custom.document, edges: [custom.document.edges[1]] }, expectedRevision: 4, idempotencyKey: crypto.randomUUID() });
     expect((await service.get(accountId, result.relationId)).deletedAt).not.toBeNull();
+    expect((await service.get(accountId, independent.relationId)).deletedAt).toBeNull();
+    expect((await service.available(accountId, diagram.id)).some(item => item.relationId === result.relationId)).toBe(false);
+    await diagramService.save(accountId, diagram.id, { document: custom.document, expectedRevision: removed.revision, idempotencyKey: crypto.randomUUID() });
+    expect((await service.get(accountId, result.relationId)).deletedAt).toBeNull();
+    const copy = await diagramService.duplicate(accountId, diagram.id); diagramIds.push(copy.id); projectIds.push(copy.projectId);
+    const copyRelationId = ((copy.document.edges[0] as { data: { relationId: string } }).data.relationId);
+    expect(copyRelationId).not.toBe(result.relationId);
+    expect((await service.get(accountId, copyRelationId)).evidence[0]?.excerpt).toBe('Dato relevante');
   }, 90_000);
 });

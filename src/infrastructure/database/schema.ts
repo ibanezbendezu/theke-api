@@ -203,6 +203,7 @@ export const relationTypes = pgTable('relation_types', {
 export const relations = pgTable('relations', {
   id: uuid('id').defaultRandom().primaryKey(),
   accountId: uuid('account_id').notNull().references(() => accounts.id),
+  diagramId: uuid('diagram_id').references(() => diagrams.id),
   sourceResourceId: uuid('source_resource_id').notNull().references(() => resources.id),
   targetResourceId: uuid('target_resource_id').notNull().references(() => resources.id),
   direction: text('direction').$type<'directed' | 'undirected'>().notNull(),
@@ -219,7 +220,7 @@ export const relations = pgTable('relations', {
   updatedByUserId: uuid('updated_by_user_id').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, table => [uniqueIndex('relations_equivalent_uq').on(table.accountId, table.sourceResourceId, table.targetResourceId, table.direction, table.typeKey)]);
+}, table => [uniqueIndex('relations_equivalent_uq').on(table.diagramId, table.sourceResourceId, table.targetResourceId, table.direction, table.typeKey).where(isNull(table.deletedAt))]);
 export const relationEvidence = pgTable('relation_evidence', {
   id: uuid('id').defaultRandom().primaryKey(),
   relationId: uuid('relation_id').notNull().references(() => relations.id),

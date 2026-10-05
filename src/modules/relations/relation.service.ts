@@ -12,7 +12,7 @@ export const commonRelationTypes = [
 ] as const;
 
 type Document = typeof diagrams.$inferSelect.document;
-type CanvasNode = { id?: unknown; type?: unknown; data?: { resourceId?: unknown } };
+type CanvasNode = { id?: unknown; type?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; width?: unknown; height?: unknown; data?: { resourceId?: unknown } };
 type CanvasEdge = { id?: unknown; source?: unknown; target?: unknown; data?: { relationId?: unknown; operationId?: unknown } };
 type CreateInput = { sourceNodeId?: unknown; targetNodeId?: unknown; direction?: unknown; typeKey?: unknown; customTypeName?: unknown; expectedRevision?: unknown; idempotencyKey?: unknown; reuseExisting?: unknown };
 type EditInput = { label?: unknown; explanation?: unknown; provenance?: unknown; evidenceStatus?: unknown; evidence?: unknown; expectedRevision?: unknown };
@@ -21,6 +21,34 @@ function optionalText(value: unknown, name: string, max: number) {
   if (value == null || value === '') return null;
   if (typeof value !== 'string' || value.trim().length > max) throw new BadRequestException(`${name} inválida o demasiado larga.`);
   return value.trim() || null;
+}
+
+function defaultOffset(nodes: CanvasNode[], sourceId: string, targetId: string) {
+  const center = (id: string) => {
+    const node = nodes.find(item => item.id === id);
+    if (!node) return { x: 0, y: 0 };
+    let x = Number(node.position?.x ?? 0) + Number(node.width ?? 288) / 2;
+    let y = Number(node.position?.y ?? 0) + Number(node.height ?? 112) / 2;
+    let parentId = node.parentId;
+    const visited = new Set<unknown>();
+    while (typeof parentId === 'string' && !visited.has(parentId)) {
+      visited.add(parentId);
+      const parent = nodes.find(item => item.id === parentId);
+      if (!parent) break;
+      x += Number(parent.position?.x ?? 0);
+      y += Number(parent.position?.y ?? 0);
+      parentId = parent.parentId;
+    }
+    return { x, y };
+  };
+  const source = center(sourceId);
+  const target = center(targetId);
+  const dx = target.x - source.x;
+  const dy = target.y - source.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 1) return { x: 0, y: 64 };
+  const bend = Math.min(100, Math.max(64, distance * 0.22));
+  return { x: -dy / distance * bend, y: dx / distance * bend };
 }
 
 @Injectable()
@@ -34,7 +62,7 @@ export class RelationService {
     const resourceIds = [...new Set(nodes.map(node => node.data!.resourceId as string))];
     if (resourceIds.length < 2) return [];
     const shown = new Set((diagram.document.edges as CanvasEdge[]).map(edge => edge.data?.relationId).filter((id): id is string => typeof id === 'string'));
-    const candidates = await this.database.db.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction, typeKey: relations.typeKey, label: relations.label, evidenceStatus: relations.evidenceStatus, sourceTitle: resources.title }).from(relations).innerJoin(resources, eq(resources.id, relations.sourceResourceId)).where(and(eq(relations.accountId, accountId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.sourceResourceId, resourceIds), inArray(relations.targetResourceId, resourceIds)));
+    const candidates = await this.database.db.select({ id: relations.id, sourceResourceId: relations.sourceResourceId, targetResourceId: relations.targetResourceId, direction: relations.direction, typeKey: relations.typeKey, label: relations.label, evidenceStatus: relations.evidenceStatus, sourceTitle: resources.title }).from(relations).innerJoin(resources, eq(resources.id, relations.sourceResourceId)).where(and(eq(relations.accountId, accountId), eq(relations.diagramId, diagramId), isNull(relations.deletedAt), isNull(relations.archivedAt), inArray(relations.sourceResourceId, resourceIds), inArray(relations.targetResourceId, resourceIds)));
     const targetTitles = await this.database.db.select({ id: resources.id, title: resources.title }).from(resources).where(inArray(resources.id, resourceIds));
     const titleById = new Map(targetTitles.map(item => [item.id, item.title]));
     const customIds = candidates.map(item => item.typeKey.startsWith('custom:') ? item.typeKey.slice(7) : null).filter((id): id is string => Boolean(id));
@@ -101,16 +129,18 @@ export class RelationService {
         typeLabel = type.label;
       }
       const [from, to] = direction === 'undirected' && sourceResourceId > targetResourceId ? [targetResourceId, sourceResourceId] : [sourceResourceId, targetResourceId];
-      const [createdRelation] = await tx.insert(relations).values({ accountId, sourceResourceId: from, targetResourceId: to, direction, typeKey, createdByUserId: authorUserId, updatedByUserId: authorUserId }).onConflictDoNothing().returning({ id: relations.id });
-      const [relation] = createdRelation ? [createdRelation] : await tx.select({ id: relations.id, archivedAt: relations.archivedAt, deletedAt: relations.deletedAt }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.sourceResourceId, from), eq(relations.targetResourceId, to), eq(relations.direction, direction), eq(relations.typeKey, typeKey))).limit(1);
+      const [createdRelation] = await tx.insert(relations).values({ accountId, diagramId, sourceResourceId: from, targetResourceId: to, direction, typeKey, createdByUserId: authorUserId, updatedByUserId: authorUserId }).onConflictDoNothing().returning({ id: relations.id });
+      const [relation] = createdRelation ? [createdRelation] : await tx.select({ id: relations.id, archivedAt: relations.archivedAt, deletedAt: relations.deletedAt }).from(relations).where(and(eq(relations.accountId, accountId), eq(relations.diagramId, diagramId), eq(relations.sourceResourceId, from), eq(relations.targetResourceId, to), eq(relations.direction, direction), eq(relations.typeKey, typeKey), isNull(relations.deletedAt))).limit(1);
       if (!relation) throw new ConflictException('No se pudo recuperar la Relación.');
       if ('archivedAt' in relation && (relation.archivedAt || relation.deletedAt)) throw new ConflictException('La Relación equivalente está archivada. Restáurala antes de mostrarla.');
-      if (!createdRelation && input.reuseExisting !== true) throw new ConflictException({ message: 'Ya existe una Relación equivalente. Puedes mostrarla en este Diagrama.', details: { relationId: relation.id } });
+      if (!createdRelation && input.reuseExisting !== true) throw new ConflictException({ message: 'Ya existe una Relación equivalente en este mapa.', details: { relationId: relation.id } });
       const edges = current.document.edges as CanvasEdge[];
       const alreadyShown = edges.find(item => item.data?.relationId === relation.id && item.source === sourceNodeId && item.target === targetNodeId);
       if (alreadyShown) return { relationId: relation.id, edgeId: alreadyShown.id, revision: current.revision, document: current.document, reused: true };
       const edgeId = crypto.randomUUID();
-      const edge = { id: edgeId, source: sourceNodeId, target: targetNodeId, type: 'editable', ...(direction === 'directed' ? { markerEnd: { type: 'arrowclosed' } } : {}), data: { relationId: relation.id, typeKey, typeLabel, direction, operationId: input.idempotencyKey } };
+      const edge = { id: edgeId, source: sourceNodeId, target: targetNodeId,
+        type: 'editable', ...(direction === 'directed' ? { markerEnd: { type: 'arrowclosed' } } : {}),
+        data: { relationId: relation.id, typeKey, typeLabel, direction, operationId: input.idempotencyKey, offset: defaultOffset(nodes, sourceNodeId, targetNodeId) } };
       const document: Document = { ...current.document, edges: [...current.document.edges, edge] };
       const revision = current.revision + 1;
       const updatedAt = new Date();
