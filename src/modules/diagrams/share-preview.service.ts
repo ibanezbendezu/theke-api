@@ -2,7 +2,7 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { folders, projectResources, relationEvidence, relationTypes, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
+import { folders, libraryFolders, projectResources, relationEvidence, relationTypes, relations, resourceAccessibility, resourceLinks, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 import { commonRelationTypes } from '../relations/relation.service.js';
 import { DiagramService } from './diagram.service.js';
 
@@ -62,15 +62,23 @@ export class SharePreviewService {
       .where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), isNull(resources.archivedAt), inArray(resources.id, ids))) : [];
     const resourceById = new Map(resourceRows.filter(row => ids.includes(row.id) && !('archivedAt' in row && row.archivedAt) && !('deletedAt' in row && row.deletedAt)).map(row => [row.id, row]));
     if (resourceById.size !== ids.length) throw new ConflictException('Recurso del Canvas no disponible.');
-    const folderIds = [...new Set(visibleNodes.filter(node => node.type === 'folder').map(node => node.data?.folderId))];
+    const folderIds = [...new Set(visibleNodes.filter(node => node.type === 'folder' && !node.data?.libraryFolderId).map(node => node.data?.folderId))];
+    const libraryFolderIds = [...new Set(visibleNodes.filter(node => node.type === 'folder' && node.data?.libraryFolderId).map(node => node.data?.libraryFolderId))];
     if (folderIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Carpeta del Canvas no disponible.');
+    if (libraryFolderIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Carpeta de Biblioteca no disponible.');
     const folderRows = folderIds.length ? await db.select({ id: folders.id, name: folders.name }).from(folders)
       .where(and(eq(folders.projectId, diagram.projectId), isNull(folders.archivedAt), inArray(folders.id, folderIds as string[]))) : [];
     const folderById = new Map(folderRows.map(row => [row.id, row]));
     if (folderById.size !== folderIds.length) throw new ConflictException('Carpeta del Canvas no disponible.');
+    const libraryFolderRows = libraryFolderIds.length ? await db.select({ id: libraryFolders.id, name: libraryFolders.name }).from(libraryFolders)
+      .where(and(eq(libraryFolders.accountId, accountId), inArray(libraryFolders.id, libraryFolderIds as string[]))) : [];
+    const libraryFolderById = new Map(libraryFolderRows.map(row => [row.id, row]));
+    if (libraryFolderById.size !== libraryFolderIds.length) throw new ConflictException('Carpeta de Biblioteca no disponible.');
     const folderCounts = folderIds.length ? await db.select({ folderId: projectResources.folderId }).from(projectResources)
       .innerJoin(resources, eq(resources.id, projectResources.resourceId))
       .where(and(eq(projectResources.projectId, diagram.projectId), inArray(projectResources.folderId, folderIds as string[]), isNull(resources.archivedAt), isNull(resources.deletedAt))) : [];
+    const libraryFolderCounts = libraryFolderIds.length ? await db.select({ folderId: resources.libraryFolderId }).from(resources)
+      .where(and(eq(resources.accountId, accountId), inArray(resources.libraryFolderId, libraryFolderIds as string[]), isNull(resources.archivedAt), isNull(resources.deletedAt))) : [];
 
     const warnings: { resourceId: string; field: string; message: string }[] = [];
     const publicResources = ids.map(id => {
@@ -142,8 +150,8 @@ export class SharePreviewService {
           caption: text(data.caption, 160), accent: ['default', 'primary', 'muted'].includes(String(data.accent)) ? data.accent : undefined,
           zIndex: number(node.zIndex, -10000, 10000) };
         const specific = type === 'resource' ? { resourceId: data.resourceId } : type === 'folder' ? {
-          folderName: folderById.get(data.folderId as string)?.name,
-          folderCount: folderCounts.filter(row => row.folderId === data.folderId).length,
+          folderName: data.libraryFolderId ? libraryFolderById.get(data.libraryFolderId as string)?.name : folderById.get(data.folderId as string)?.name,
+          folderCount: data.libraryFolderId ? libraryFolderCounts.filter(row => row.folderId === data.libraryFolderId).length : folderCounts.filter(row => row.folderId === data.folderId).length,
         } : type === 'container' ? { label: text(data.label, 160), color: color(data.color) } : type === 'annotation' ? {
           annotationKind: ['text', 'shape', 'line'].includes(String(data.kind)) ? data.kind : 'text', text: text(data.text, 2000),
           fontSize: number(data.fontSize, 8, 144), align: ['left', 'center', 'right', 'justify'].includes(String(data.align)) ? data.align : undefined,

@@ -11,8 +11,9 @@ const relation = { id: relationId, sourceResourceId: resourceId, targetResourceI
 const nodes = [{ id: 'n1', type: 'resource', position: { x: 10, y: 20 }, data: { resourceId, privateReference: 'hidden' } }, { id: 'n2', type: 'resource', position: { x: 200, y: 80 }, data: { resourceId: otherId } }, { id: 'folder', type: 'container', position: { x: 300, y: 0 }, width: 400, height: 260, data: { label: 'Grupo visible', privateReference: 'hidden' } }];
 const edges = [{ id: 'e1', source: 'n1', target: 'n2', data: { relationId, privateReference: 'hidden' } }];
 
-function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; folderRows?: object[]; folderCountRows?: object[]; relationRows?: object[]; customTypeRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
-  const responses = [input.resourceRows ?? [note, file], ...(input.folderRows ? [input.folderRows, input.folderCountRows ?? []] : []), input.relationRows ?? [relation], ...(input.customTypeRows ? [input.customTypeRows] : []), input.evidenceRows ?? []];
+function setup(input: { nodes?: object[]; edges?: object[]; resourceRows?: object[]; folderRows?: object[]; folderCountRows?: object[]; libraryFolderRows?: object[]; libraryFolderCountRows?: object[]; relationRows?: object[]; customTypeRows?: object[]; evidenceRows?: object[]; rejected?: boolean } = {}) {
+  const usedNodes = input.nodes ?? nodes;
+  const responses = [...(usedNodes.some(node => (node as { type?: string }).type === 'resource') ? [input.resourceRows ?? [note, file]] : []), ...(input.folderRows ? [input.folderRows] : []), ...(input.libraryFolderRows ? [input.libraryFolderRows] : []), ...(input.folderRows ? [input.folderCountRows ?? []] : []), ...(input.libraryFolderRows ? [input.libraryFolderCountRows ?? []] : []), input.relationRows ?? [relation], ...(input.customTypeRows ? [input.customTypeRows] : []), input.evidenceRows ?? []];
   const where = vi.fn();
   for (const response of responses) where.mockImplementationOnce(async () => response);
   const select = vi.fn(() => {
@@ -135,6 +136,20 @@ describe('preview privado de diagramas', () => {
     expect(preview.layout.nodes[1]).toEqual({ id: 'n1', type: 'folder', x: 40, y: 50, width: 310, height: 120, folderName: 'Documentos', folderCount: 1, caption: 'Fuentes' });
     expect(preview.layout.nodes[2]).toEqual({ id: 'n2', type: 'annotation', x: 60, y: 90, annotationKind: 'text', text: 'Lectura visible' });
     expect(JSON.stringify(preview)).not.toMatch(/privatePath|privateNote|secret|oculta/);
+  });
+
+  it('publica solo el resumen de un acceso a carpeta de Biblioteca', async () => {
+    const libraryFolderId = '55555555-5555-4555-8555-555555555555';
+    const folderNode = { id: 'library-shortcut', type: 'folder', position: { x: 40, y: 50 }, width: 208, height: 72,
+      data: { libraryFolderId, caption: 'Lecturas', privatePath: '/private' } };
+    const { service } = setup({ nodes: [folderNode], edges: [], resourceRows: [], relationRows: [],
+      libraryFolderRows: [{ id: libraryFolderId, name: 'Investigación' }],
+      libraryFolderCountRows: [{ folderId: libraryFolderId }, { folderId: libraryFolderId }] });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.layout.nodes).toEqual([{ id: 'n0', type: 'folder', x: 40, y: 50, width: 208, height: 72,
+      folderName: 'Investigación', folderCount: 2, caption: 'Lecturas' }]);
+    expect(preview.resources).toEqual([]);
+    expect(JSON.stringify(preview)).not.toMatch(/libraryFolderId|privatePath|\/private|55555555/);
   });
 
   it('publica el estilo del texto visual sin filtrar datos arbitrarios', async () => {

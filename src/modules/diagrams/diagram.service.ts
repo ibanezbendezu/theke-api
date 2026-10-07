@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
-import { diagramRevisions, diagrams, folders, projectResources, projects, relationEvidence, relations, resources } from '../../infrastructure/database/schema.js';
+import { diagramRevisions, diagrams, folders, libraryFolders, projectResources, projects, relationEvidence, relations, resources } from '../../infrastructure/database/schema.js';
 
 const emptyDocument = () => ({ schemaVersion: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, background: { variant: 'dots' as const, tone: 'default' as const } });
 function validName(value: unknown) { const name = typeof value === 'string' ? value.trim() : ''; if (!name || name.length > 120) throw new BadRequestException('El nombre debe tener entre 1 y 120 caracteres.'); return name; }
@@ -53,10 +53,16 @@ export class DiagramService {
       const resourceIds = [...new Set(document.nodes.map(node => (node as { data?: { resourceId?: unknown } }).data?.resourceId).filter((value): value is string => typeof value === 'string'))];
       if (resourceIds.some(value => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))) throw new BadRequestException('Referencia de recurso inválida.');
       if (resourceIds.length) { const owned = await tx.select({ id: resources.id }).from(resources).where(and(eq(resources.accountId, accountId), isNull(resources.deletedAt), inArray(resources.id, resourceIds))).for('share'); if (owned.length !== resourceIds.length) throw new NotFoundException('Recurso del Canvas no encontrado.'); }
-      const folderNodes = document.nodes.filter(node => (node as { type?: string }).type === 'folder').map(node => (node as { data: { folderId?: unknown; projectId?: unknown } }).data);
-      const folderIds = [...new Set(folderNodes.map(node => node.folderId))];
-      if (folderNodes.some(node => typeof node.folderId !== 'string' || typeof node.projectId !== 'string' || node.projectId !== current.projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.folderId))) throw new BadRequestException('Referencia de carpeta inválida.');
-      if (folderIds.length) { const owned = await tx.select({ id: folders.id }).from(folders).where(and(eq(folders.projectId, current.projectId), inArray(folders.id, folderIds as string[]))).for('share'); if (owned.length !== folderIds.length) throw new NotFoundException('Carpeta del Canvas no encontrada.'); }
+      const folderNodes = document.nodes.filter(node => (node as { type?: string }).type === 'folder').map(node => (node as { data: { folderId?: unknown; libraryFolderId?: unknown; projectId?: unknown } }).data);
+      const legacyFolders = folderNodes.filter(node => node.libraryFolderId === undefined);
+      const libraryShortcuts = folderNodes.filter(node => node.libraryFolderId !== undefined);
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (legacyFolders.some(node => typeof node.folderId !== 'string' || !uuid.test(node.folderId) || node.projectId !== current.projectId) ||
+        libraryShortcuts.some(node => typeof node.libraryFolderId !== 'string' || !uuid.test(node.libraryFolderId) || node.folderId !== undefined)) throw new BadRequestException('Referencia de carpeta inválida.');
+      const folderIds = [...new Set(legacyFolders.map(node => node.folderId as string))];
+      const libraryFolderIds = [...new Set(libraryShortcuts.map(node => node.libraryFolderId as string))];
+      if (folderIds.length) { const owned = await tx.select({ id: folders.id }).from(folders).where(and(eq(folders.projectId, current.projectId), inArray(folders.id, folderIds))).for('share'); if (owned.length !== folderIds.length) throw new NotFoundException('Carpeta del Canvas no encontrada.'); }
+      if (libraryFolderIds.length) { const owned = await tx.select({ id: libraryFolders.id }).from(libraryFolders).where(and(eq(libraryFolders.accountId, accountId), inArray(libraryFolders.id, libraryFolderIds))).for('share'); if (owned.length !== libraryFolderIds.length) throw new NotFoundException('Carpeta de Biblioteca no encontrada.'); }
       if (document.edges.some(edge => { const relationId = (edge as { data?: { relationId?: unknown } }).data?.relationId; return relationId !== undefined && typeof relationId !== 'string'; })) throw new BadRequestException('Referencia de Relación inválida.');
       const relationEdges = document.edges.filter(edge => typeof (edge as { data?: { relationId?: unknown } }).data?.relationId === 'string') as { source: string; target: string; data: { relationId: string } }[];
       const relationIds = [...new Set(relationEdges.map(edge => edge.data.relationId))];
