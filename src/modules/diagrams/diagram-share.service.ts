@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { createHash, createHmac } from 'node:crypto';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
+import { UploadQueue, type ShareSyncJob } from '../../infrastructure/queue/upload.queue.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { diagramShareEvents, diagramShares, diagrams, projects, publicShareComments, resources as resourcesTable, resourceVersions } from '../../infrastructure/database/schema.js';
 import { commonRelationTypes } from '../relations/relation.service.js';
@@ -15,7 +16,12 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 @Injectable()
 export class DiagramShareService {
-  constructor(@Inject(Database) private readonly database: Database, @Inject(SharePreviewService) private readonly preview: SharePreviewService, @Inject(UPLOAD_STORAGE) private readonly storage: UploadStorage) {}
+  constructor(@Inject(Database) private readonly database: Database, @Inject(SharePreviewService) private readonly preview: SharePreviewService, @Inject(UPLOAD_STORAGE) private readonly storage: UploadStorage, @Optional() @Inject(UploadQueue) private readonly queue?: UploadQueue) {}
+
+  async enqueueSync(job: ShareSyncJob) {
+    try { await this.queue?.enqueueShare(job); }
+    catch { console.error('No se pudo encolar la actualización del mapa compartido.'); }
+  }
 
   private tokenFor(accountId: string, diagramId: string, idempotencyKey: string) {
     const secret = process.env.SHARE_TOKEN_SECRET;
@@ -119,6 +125,46 @@ export class DiagramShareService {
       await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });
       return { fingerprint: current.fingerprint, revision };
     }, { isolationLevel: 'serializable' }));
+  }
+
+  async syncAfterSave(accountId: string, actorUserId: string, diagramId: string): Promise<'inactive' | 'current' | 'updated' | 'failed'> {
+    try {
+      return await withSerializationRetry(() => this.database.db.transaction(async tx => {
+        const [diagram] = await tx.select({ id: diagrams.id }).from(diagrams)
+          .innerJoin(projects, and(eq(projects.id, diagrams.projectId), eq(projects.accountId, accountId), isNull(projects.deletedAt)))
+          .where(and(eq(diagrams.id, diagramId), isNull(diagrams.deletedAt))).for('update').limit(1);
+        if (!diagram) return 'inactive' as const;
+        const [share] = await tx.select({ id: diagramShares.id, fingerprint: diagramShares.fingerprint }).from(diagramShares)
+          .where(and(eq(diagramShares.accountId, accountId), eq(diagramShares.diagramId, diagramId), isNull(diagramShares.revokedAt))).for('update').limit(1);
+        if (!share) return 'inactive' as const;
+        const current = await this.preview.get(accountId, diagramId, tx as unknown as Database['db']);
+        if (!current.ready) return 'failed' as const;
+        if (share.fingerprint === current.fingerprint) return 'current' as const;
+        const { diagramName, revision, resources, relations, layout } = current;
+        const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
+        const projection = { diagramName, revision, resources, relations, layout };
+        const comments = await tx.select({ id: publicShareComments.id, anchor: publicShareComments.anchor })
+          .from(publicShareComments).where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), isNull(publicShareComments.orphanedAt)));
+        for (const comment of comments) if (!commentHasAnchor(comment.anchor, projection))
+          await tx.update(publicShareComments).set({ orphanedAt: new Date() }).where(eq(publicShareComments.id, comment.id));
+        await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection, mediaManifest })
+          .where(eq(diagramShares.id, share.id));
+        await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });
+        return 'updated' as const;
+      }, { isolationLevel: 'serializable' }));
+    } catch {
+      // The private save is already committed. Keep the last complete public projection.
+      return 'failed';
+    }
+  }
+
+  async syncForResource(accountId: string, actorUserId: string, resourceId: string) {
+      const shares = await this.database.db.select({ diagramId: diagramShares.diagramId, projection: diagramShares.projection })
+        .from(diagramShares).where(and(eq(diagramShares.accountId, accountId), isNull(diagramShares.revokedAt)));
+      for (const share of shares) {
+        if (share.projection.resources.some(resource => typeof resource === 'object' && resource !== null && 'id' in resource && resource.id === resourceId))
+          if (await this.syncAfterSave(accountId, actorUserId, share.diagramId) === 'failed') throw new Error('No se pudo actualizar el mapa compartido.');
+      }
   }
 
   async revoke(accountId: string, actorUserId: string, diagramId: string, input: { expectedPublishedFingerprint?: unknown; confirmation?: unknown }) {

@@ -119,3 +119,51 @@ describe('publicación de Compartidos', () => {
     expect(Buffer.concat(await Array.fromAsync(media.content))).toEqual(Buffer.from('file'));
   });
 });
+
+describe('actualización del Compartido en segundo plano', () => {
+  it('encola la revisión pública sin calcularla durante el guardado', async () => {
+    const { preview } = setup();
+    const enqueueShare = vi.fn(async () => undefined);
+    const queued = new DiagramShareService({} as never, preview as never, {} as never, { enqueueShare } as never);
+    const job = { accountId: 'owner', actorUserId: 'actor', diagramId: 'diagram' };
+    await queued.enqueueSync(job);
+    expect(enqueueShare).toHaveBeenCalledWith(job);
+    expect(preview.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('actualización automática del enlace', () => {
+  function savedShare(ready: boolean) {
+    const rows = [[{ id: 'diagram' }], [{ id: 'share', fingerprint: 'a'.repeat(64) }], []];
+    const select = vi.fn(() => {
+      const chain: Record<string, unknown> = {};
+      for (const method of ['from', 'innerJoin', 'where', 'for']) chain[method] = vi.fn(() => chain);
+      chain.limit = vi.fn(async () => rows.shift() ?? []);
+      chain.then = (resolve: (value: unknown) => unknown) => resolve(rows.shift() ?? []);
+      return chain;
+    });
+    const update = vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn(async () => undefined) })) }));
+    const insert = vi.fn(() => ({ values: vi.fn(async () => undefined) }));
+    const tx = { select, update, insert };
+    const database = { db: { transaction: (run: (value: typeof tx) => Promise<unknown>) => run(tx) } };
+    const preview = { get: vi.fn(async () => ({ ...projection, layout: { nodes: [], edges: [] }, fingerprint: 'b'.repeat(64), ready })) };
+    return { service: new DiagramShareService(database as never, preview as never, { read: vi.fn() } as never), preview, update, insert };
+  }
+
+  it('sustituye la proyección pública completa tras guardar y conserva el token', async () => {
+    const { service, update, insert, preview } = savedShare(true);
+    expect(await service.syncAfterSave('owner', 'actor', 'diagram')).toBe('updated');
+    expect(preview.get).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledOnce();
+    const values = (update.mock.results[0]!.value as { set: ReturnType<typeof vi.fn> }).set.mock.calls[0]![0];
+    expect(values).toMatchObject({fingerprint: 'b'.repeat(64), projection: {diagramName: 'Mapa', revision: 7}, mediaManifest: {}});
+    expect(values).not.toHaveProperty('tokenHash');
+    expect(insert).toHaveBeenCalledOnce();
+  });
+
+  it('conserva la última versión pública si la nueva no es publicable', async () => {
+    const { service, update } = savedShare(false);
+    expect(await service.syncAfterSave('owner', 'actor', 'diagram')).toBe('failed');
+    expect(update).not.toHaveBeenCalled();
+  });
+});

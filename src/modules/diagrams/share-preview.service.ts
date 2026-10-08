@@ -194,6 +194,6 @@ export class SharePreviewService {
         evidence: evidenceRows.filter(item => item.relationId === id && ids.includes(item.resourceId)).map(item => ({ resourceId: item.resourceId, excerpt: item.excerpt ?? null, note: item.note ?? null, pageNumber: item.pageNumber ?? null })),
       }; }) };
     const fingerprint = createHash('sha256').update(JSON.stringify({ projection, versions: ids.map(id => resourceById.get(id)!.versionId) })).digest('hex');
-    return { ...projection, fingerprint, warnings, ready: warnings.length === 0 };
+    return { ...projection, fingerprint, warnings, ready: warnings.every(item => item.field === 'accessibilityText') };
   }
 }

@@ -138,6 +138,15 @@ describe('preview privado de diagramas', () => {
     expect(JSON.stringify(preview)).not.toMatch(/privatePath|privateNote|secret|oculta/);
   });
 
+  it('permite compartir un archivo disponible aunque falte su descripción accesible', async () => {
+    const { service } = setup({ resourceRows: [note, { ...file, accessibilityText: '  ' }] });
+    const preview = await service.get('owner', 'diagram');
+    expect(preview.ready).toBe(true);
+    expect(preview.warnings).toEqual([
+      { resourceId: otherId, field: 'accessibilityText', message: expect.any(String) },
+    ]);
+  });
+
   it('publica solo el resumen de un acceso a carpeta de Biblioteca', async () => {
     const libraryFolderId = '55555555-5555-4555-8555-555555555555';
     const folderNode = { id: 'library-shortcut', type: 'folder', position: { x: 40, y: 50 }, width: 208, height: 72,

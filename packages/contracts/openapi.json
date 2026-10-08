@@ -2268,6 +2268,9 @@
           "type": {
             "type": "string"
           },
+          "mediaType": {
+            "type": ["string", "null"]
+          },
           "archivedAt": {
             "type": ["string", "null"],
             "format": "date-time"

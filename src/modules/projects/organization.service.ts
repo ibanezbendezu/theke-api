@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
-import { folders, projectResources, projects, resources } from '../../infrastructure/database/schema.js';
+import { folders, projectResources, projects, resources, resourceVersions } from '../../infrastructure/database/schema.js';
 
 @Injectable()
 export class OrganizationService {
@@ -13,7 +13,7 @@ export class OrganizationService {
   async list(accountId: string, projectId: string) {
     await this.project(accountId, projectId);
     const folderRows = await this.database.db.select().from(folders).where(eq(folders.projectId, projectId));
-    const resourceRows = await this.database.db.select({ id: projectResources.id, resourceId: resources.id, folderId: projectResources.folderId, title: resources.title, description: resources.description, type: resources.type, archivedAt: resources.archivedAt, updatedAt: resources.updatedAt }).from(projectResources).innerJoin(resources, and(eq(resources.id, projectResources.resourceId), eq(resources.accountId, accountId), isNull(resources.deletedAt))).where(eq(projectResources.projectId, projectId));
+    const resourceRows = await this.database.db.select({ id: projectResources.id, resourceId: resources.id, folderId: projectResources.folderId, title: resources.title, description: resources.description, type: resources.type, mediaType: resourceVersions.mediaType, archivedAt: resources.archivedAt, updatedAt: resources.updatedAt }).from(projectResources).innerJoin(resources, and(eq(resources.id, projectResources.resourceId), eq(resources.accountId, accountId), isNull(resources.deletedAt))).leftJoin(resourceVersions, eq(resourceVersions.id, resources.currentVersionId)).where(eq(projectResources.projectId, projectId));
     return { folders: folderRows, resources: resourceRows };
   }
   async createFolder(accountId: string, projectId: string, name: unknown, parentFolderId?: string | null) { await this.project(accountId, projectId); await this.folder(projectId, parentFolderId); const [value] = await this.database.db.insert(folders).values({ projectId, name: this.name(name), parentFolderId: parentFolderId || null }).returning(); return value!; }

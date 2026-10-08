@@ -19,8 +19,18 @@ export class DiagramsController {
   @Patch('diagrams/:id/shares/active/comments') async shareComments(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { enabled?: unknown }, @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) { const identity = await this.accounts.ensureLocalUser(auth); response.header('Cache-Control', 'private, no-store'); return { data: await this.shares.setComments(identity.account.id, identity.user.id, id, body) }; }
   @Put('diagrams/:id/shares/active/projection') async refreshShare(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { fingerprint?: unknown; expectedPublishedFingerprint?: unknown }, @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) { const identity = await this.accounts.ensureLocalUser(auth); response.header('Cache-Control', 'private, no-store'); return { data: await this.shares.refresh(identity.account.id, identity.user.id, id, body) }; }
   @Post('diagrams/:id/shares/active/revoke') async revokeShare(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { expectedPublishedFingerprint?: unknown; confirmation?: unknown }, @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) { const identity = await this.accounts.ensureLocalUser(auth); response.header('Cache-Control', 'private, no-store'); return { data: await this.shares.revoke(identity.account.id, identity.user.id, id, body) }; }
-  @Patch('diagrams/:id') async rename(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { name?: unknown }) { return { data: await this.diagrams.rename(await this.accountId(auth), id, body.name) }; }
-  @Put('diagrams/:id/document') async save(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { document?: unknown; expectedRevision?: unknown; idempotencyKey?: unknown }) { return { data: await this.diagrams.save(await this.accountId(auth), id, body) }; }
+  @Patch('diagrams/:id') async rename(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { name?: unknown }) {
+    const identity = await this.accounts.ensureLocalUser(auth);
+    const renamed = await this.diagrams.rename(identity.account.id, id, body.name);
+    await this.shares.enqueueSync({ accountId: identity.account.id, actorUserId: identity.user.id, diagramId: id });
+    return { data: renamed };
+  }
+  @Put('diagrams/:id/document') async save(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { document?: unknown; expectedRevision?: unknown; idempotencyKey?: unknown }) {
+    const identity = await this.accounts.ensureLocalUser(auth);
+    const saved = await this.diagrams.save(identity.account.id, id, body);
+    await this.shares.enqueueSync({ accountId: identity.account.id, actorUserId: identity.user.id, diagramId: id });
+    return { data: saved };
+  }
   @Post('diagrams/:id/duplicates') async duplicate(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: { name?: unknown }) { return { data: await this.diagrams.duplicate(await this.accountId(auth), id, body.name) }; }
   @Post('diagrams/:id/restore') async restore(@AuthContext() auth: AuthContextValue, @Param('id', new ParseUUIDPipe()) id: string) { return { data: await this.diagrams.restore(await this.accountId(auth), id) }; }
 }
