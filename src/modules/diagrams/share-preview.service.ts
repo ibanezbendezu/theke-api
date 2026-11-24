@@ -10,7 +10,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const supportedMedia = new Set(['application/pdf', 'text/plain', 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'video/mp4', 'video/webm']);
 type CanvasNode = { id?: unknown; type?: unknown; hidden?: unknown; parentId?: unknown; position?: { x?: unknown; y?: unknown }; width?: unknown; height?: unknown; zIndex?: unknown; data?: Record<string, unknown> };
 type CanvasEdge = { source?: unknown; target?: unknown; hidden?: unknown; sourceHandle?: unknown; targetHandle?: unknown; data?: Record<string, unknown> };
-const nodeTypes = new Set(['resource', 'folder', 'container', 'annotation', 'text', 'shape', 'link', 'media', 'document', 'audio']);
+const nodeTypes = new Set(['resource', 'folder', 'container', 'collection', 'annotation', 'text', 'shape', 'link', 'media', 'document', 'audio']);
 const text = (value: unknown, max = 500) => typeof value === 'string' ? value.slice(0, max) : undefined;
 const number = (value: unknown, min: number, max: number) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : undefined;
 const color = (value: unknown) => typeof value === 'string' && (/^#[0-9a-f]{3,8}$/i.test(value) || /^var\(--color-[a-z-]+\)$/.test(value)) ? value : undefined;
@@ -49,7 +49,8 @@ export class SharePreviewService {
     const visibleNodes = nodes.filter(node => positionOf(node).visible);
     if (visibleNodes.some(node => !nodeTypes.has(String(node.type)))) throw new ConflictException('El Canvas contiene un elemento sin vista pública compatible.');
     const represented = visibleNodes.filter(node => node.type === 'resource');
-    const resourceIds = [...new Set(represented.map(node => node.data?.resourceId))];
+    const resourceIds = [...new Set(visibleNodes.flatMap(node => node.type === 'resource' ? [node.data?.resourceId]
+      : node.type === 'collection' && Array.isArray(node.data?.resourceIds) ? node.data.resourceIds : []))];
     if (resourceIds.some(id => typeof id !== 'string' || !uuid.test(id))) throw new ConflictException('Referencia de recurso no disponible.');
     const ids = resourceIds as string[];
     const resourceRows = ids.length ? await db.select({
@@ -149,7 +150,11 @@ export class SharePreviewService {
           width: number(node.width, 20, 5000), height: number(node.height, 4, 5000),
           caption: text(data.caption, 160), accent: ['default', 'primary', 'muted'].includes(String(data.accent)) ? data.accent : undefined,
           zIndex: number(node.zIndex, -10000, 10000) };
-        const specific = type === 'resource' ? { resourceId: data.resourceId } : type === 'folder' ? {
+        const specific = type === 'resource' ? { resourceId: data.resourceId } : type === 'collection' ? {
+          resourceIds: Array.isArray(data.resourceIds) ? data.resourceIds.filter(id => typeof id === 'string' && uuid.test(id)) : [],
+          label: text(data.label, 160),
+          displayMode: ['stack', 'gallery', 'list'].includes(String(data.displayMode)) ? data.displayMode : 'stack',
+        } : type === 'folder' ? {
           folderName: data.libraryFolderId ? libraryFolderById.get(data.libraryFolderId as string)?.name : folderById.get(data.folderId as string)?.name,
           folderCount: data.libraryFolderId ? libraryFolderCounts.filter(row => row.folderId === data.libraryFolderId).length : folderCounts.filter(row => row.folderId === data.folderId).length,
         } : type === 'container' ? { label: text(data.label, 160), color: color(data.color) } : type === 'annotation' ? {

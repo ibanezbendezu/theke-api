@@ -1873,8 +1873,8 @@
       },
       "PublicRelationEvidence": { "type": "object", "additionalProperties": false, "required": ["resourceId", "excerpt", "note", "pageNumber"], "properties": { "resourceId": { "type": "string", "format": "uuid" }, "excerpt": { "type": ["string", "null"] }, "note": { "type": ["string", "null"] }, "pageNumber": { "type": ["integer", "null"] } } },
       "PublicLayoutNode": { "type": "object", "additionalProperties": false, "required": ["id", "x", "y"], "properties": {
-        "id": { "type": "string" }, "type": { "type": "string", "enum": ["resource", "folder", "container", "annotation", "text", "shape", "link", "media", "document", "audio"] },
-        "resourceId": { "type": "string", "format": "uuid" }, "x": { "type": "number" }, "y": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" }, "zIndex": { "type": "number" },
+        "id": { "type": "string" }, "type": { "type": "string", "enum": ["resource", "folder", "container", "collection", "annotation", "text", "shape", "link", "media", "document", "audio"] },
+        "resourceId": { "type": "string", "format": "uuid" }, "resourceIds": { "type": "array", "items": { "type": "string", "format": "uuid" } }, "displayMode": { "type": "string", "enum": ["stack", "gallery", "list"] }, "x": { "type": "number" }, "y": { "type": "number" }, "width": { "type": "number" }, "height": { "type": "number" }, "zIndex": { "type": "number" },
         "caption": { "type": "string" }, "accent": { "type": "string" }, "folderName": { "type": "string" }, "folderCount": { "type": "integer" },
         "label": { "type": "string" }, "color": { "type": "string" }, "annotationKind": { "type": "string" }, "text": { "type": "string" },
         "fontSize": { "type": "number" }, "align": { "type": "string" }, "fontFamily": { "type": "string" }, "textColor": { "type": "string" },
