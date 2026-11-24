@@ -111,8 +111,19 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     await expect(comments.edit(firstToken, first.comment.id, { content: 'Edición bloqueada', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
     expect((await comments.list(firstToken)).comments).toHaveLength(7);
     await database.db.update(diagramShares).set({ commentsEnabled: true }).where(eq(diagramShares.id, shareIds[0]!));
+    await expect(comments.claim('A'.repeat(43), undefined, undefined, { id: userId, displayName: 'Investigadora' })).rejects.toMatchObject({ status: 404 });
+    await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, otherShare.comment.id));
+    const deletedOnlyIdentity = await comments.list(secondToken, cookie);
+    expect(deletedOnlyIdentity.identity).toBeNull();
+    expect(await comments.claim(secondToken, cookie, deletedOnlyIdentity.csrfToken!, { id: userId, displayName: 'Investigadora' })).toEqual({ claimed: 0 });
+    await database.db.update(publicShareComments).set({ deletedAt: null }).where(eq(publicShareComments.id, otherShare.comment.id));
     await expect(comments.claim(firstToken, cookie, 'wrong-csrf', { id: userId, displayName: 'Investigadora' })).rejects.toMatchObject({ status: 403 });
     expect(await comments.claim(firstToken, cookie, recognized.csrfToken!, { id: userId, displayName: 'Investigadora' })).toEqual({ claimed: 2 });
+    const [claimedOwner] = await database.db.select({ ownerHash: publicShareComments.ownerHash }).from(publicShareComments).where(eq(publicShareComments.id, first.comment.id));
+    const claimedMutations = await database.db.select({ ownerHash: publicShareCommentMutations.ownerHash }).from(publicShareCommentMutations)
+      .where(inArray(publicShareCommentMutations.commentId, [first.comment.id, second.comment.id]));
+    expect(claimedMutations.length).toBeGreaterThan(0);
+    expect(claimedMutations.every(mutation => mutation.ownerHash === claimedOwner!.ownerHash)).toBe(true);
     expect(await comments.claim(firstToken, cookie, recognized.csrfToken!, { id: randomUUID(), displayName: 'Otra persona' })).toEqual({ claimed: 0 });
     expect((await comments.list(firstToken, cookie)).comments.find(item => item.id === first.comment.id)).toMatchObject({ displayName: 'Investigadora', editable: false });
     expect((await comments.list(firstToken, undefined, { id: userId, displayName: 'Investigadora' })).comments.find(item => item.id === first.comment.id)).toMatchObject({ displayName: 'Investigadora', editable: true });

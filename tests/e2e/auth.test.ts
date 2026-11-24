@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UnauthorizedException } from '@nestjs/common';
 import { ClerkAuthGuard } from '../../src/infrastructure/auth/clerk-auth.guard.js';
+import { OptionalClerkAuthGuard } from '../../src/infrastructure/auth/optional-clerk-auth.guard.js';
 import { HttpErrorFilter } from '../../src/interfaces/http/http-exception.filter.js';
 import { MeController } from '../../src/interfaces/http/me.controller.js';
 
@@ -13,6 +14,27 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('frontera HTTP de autenticación', () => {
+  it('omite Clerk sin Authorization y delega cualquier bearer al guard requerido', async () => {
+    const required = { canActivate: vi.fn(async (context: any) => {
+      context.switchToHttp().getRequest().authContext = { clerkUserId: 'clerk_optional' };
+      return true;
+    }) };
+    const guard = new OptionalClerkAuthGuard(required as any);
+    const anonymousRequest: any = { headers: {} };
+    const anonymousContext = { switchToHttp: () => ({ getRequest: () => anonymousRequest }) } as any;
+    await expect(guard.canActivate(anonymousContext)).resolves.toBe(true);
+    expect(required.canActivate).not.toHaveBeenCalled();
+
+    const signedRequest: any = { headers: { authorization: 'Bearer valid' } };
+    const signedContext = { switchToHttp: () => ({ getRequest: () => signedRequest }) } as any;
+    await expect(guard.canActivate(signedContext)).resolves.toBe(true);
+    expect(required.canActivate).toHaveBeenCalledWith(signedContext);
+    expect(signedRequest.authContext).toEqual({ clerkUserId: 'clerk_optional' });
+
+    required.canActivate.mockRejectedValueOnce(new UnauthorizedException('Sesión inválida'));
+    const invalidContext = { switchToHttp: () => ({ getRequest: () => ({ headers: { authorization: 'Bearer invalid' } }) }) } as any;
+    await expect(guard.canActivate(invalidContext)).rejects.toBeInstanceOf(UnauthorizedException);
+  });
   it('rechaza un token inválido antes de invocar aprovisionamiento o base de datos', async () => {
     const guard = new ClerkAuthGuard();
     (guard as any).clerk = { authenticateRequest: vi.fn(async () => ({ isAuthenticated: false })) };

@@ -32,6 +32,27 @@ it('señala el límite sin registrar el contenido y entrega Retry-After', async 
   expect(request.log.warn.mock.calls[0]?.[0]).toEqual({ event: 'public_comment_rate_limited', policyVersion: '2026-09-pilot-1' });
 });
 
+it('respeta el Retry-After calculado para una cuota horaria', async () => {
+  vi.stubEnv('WEB_ORIGINS', 'https://app.example');
+  const create = vi.fn().mockRejectedValue(new HttpException({ message: 'Límite', retryAfterSeconds: 3600 }, 429));
+  const controller = new PublicSharesController({} as never, { create } as never, {} as never);
+  const response = { header: vi.fn() };
+  const request = { headers: { origin: 'https://app.example', 'content-type': 'application/json' }, ip: '127.0.0.1', log: { warn: vi.fn() } };
+  await expect(controller.createComment('token', { content: 'contenido privado' }, request as never, undefined, response)).rejects.toMatchObject({ status: 429 });
+  expect(response.header).toHaveBeenCalledWith('Retry-After', '3600');
+});
+
+it('rechaza propiedades extra al vincular comentarios anónimos', async () => {
+  vi.stubEnv('WEB_ORIGINS', 'https://app.example');
+  const claim = vi.fn();
+  const ensureLocalUser = vi.fn().mockResolvedValue({ user: { id: 'user-1', displayName: 'Investigadora' } });
+  const controller = new PublicSharesController({} as never, { claim } as never, { ensureLocalUser } as never);
+  const response = { header: vi.fn() };
+  const request = { headers: { origin: 'https://app.example', 'content-type': 'application/json' } };
+  await expect(controller.claimComments('token', { unexpected: true }, request as never, { clerkUserId: 'clerk-1' }, response)).rejects.toMatchObject({ status: 400 });
+  expect(claim).not.toHaveBeenCalled();
+});
+
 it('protege la edición con Origin y JSON, y no emite una cookie nueva', async () => {
   vi.stubEnv('WEB_ORIGINS', 'https://app.example');
   const edit = vi.fn().mockResolvedValue({ id: 'comment-1', revision: 2, content: 'Editado' });

@@ -1,11 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { and, count, desc, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { Database } from '../../infrastructure/database/database.js';
 import { commentNotifications, diagramShares, publicShareComments, publicShareCommentMutations, users, type PublicCommentAnchor } from '../../infrastructure/database/schema.js';
 import { withSerializationRetry } from '../../infrastructure/database/serialization-retry.js';
 import { commonRelationTypes } from '../relations/relation.service.js';
-import { publicCommentRatePolicy } from './public-comment-rate-policy.js';
+import { commentRateLimitRetryAfterSeconds } from './public-comment-rate-policy.js';
 import { scientificAlias } from './public-comment-alias.js';
 import { commentHasAnchor } from './comment-anchor.js';
 
@@ -64,7 +64,7 @@ export class PublicCommentsService {
   cookieHeader(session: string) { return `${cookieName}=${session}; Max-Age=${ageSeconds}; Path=/; Secure; HttpOnly; SameSite=Lax`; }
   private validContent(input: unknown) {
     const content = typeof input === 'string' ? input.trim() : '';
-    if (!content || content.length > 5000 || [...content].some(char => { const code = char.charCodeAt(0); return code < 32 && code !== 9 && code !== 10 && code !== 13 || code === 127; }))
+    if (!content || [...content].length > 5000 || [...content].some(char => { const code = char.charCodeAt(0); return code < 32 && code !== 9 && code !== 10 && code !== 13 || code === 127; }))
       throw new BadRequestException({ message: 'Escribe un comentario de hasta 5.000 caracteres.', field: 'content' });
     return content;
   }
@@ -120,7 +120,7 @@ export class PublicCommentsService {
       .orderBy(desc(publicShareComments.createdAt), desc(publicShareComments.id)).limit(101);
     const page = rows.slice(0, 100);
     const [own] = ownerHash ? await this.database.db.select({ displayName: publicShareComments.displayName }).from(publicShareComments)
-      .where(and(eq(publicShareComments.shareId, share.id), eq(publicShareComments.ownerHash, ownerHash))).limit(1) : [];
+      .where(and(eq(publicShareComments.shareId, share.id), eq(publicShareComments.ownerHash, ownerHash), isNull(publicShareComments.deletedAt))).limit(1) : [];
     return { identity: user ? { displayName: user.displayName } : own ? { displayName: own.displayName } : null,
       csrfToken: session ? this.csrf(share.id, session) : null,
       nextCursor: rows.length > 100 ? page.at(-1)!.id : null,
@@ -157,8 +157,10 @@ export class PublicCommentsService {
       const ipMinute = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.ipHash, ipHash), gte(publicShareCommentMutations.createdAt, minute)));
       const ipHour = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.ipHash, ipHash), gte(publicShareCommentMutations.createdAt, hour)));
       const shareHour = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.shareId, share.id), gte(publicShareCommentMutations.createdAt, hour)));
-      if ((sessionMinute[0]?.total ?? 0) >= publicCommentRatePolicy.sessionMinute || (sessionHour[0]?.total ?? 0) >= publicCommentRatePolicy.sessionHour || (ipMinute[0]?.total ?? 0) >= publicCommentRatePolicy.ipMinute || (ipHour[0]?.total ?? 0) >= publicCommentRatePolicy.ipHour || (shareHour[0]?.total ?? 0) >= publicCommentRatePolicy.shareHour)
-        throw new HttpException('Límite de comentarios alcanzado. Inténtalo más tarde.', 429);
+      const retryAfterSeconds = commentRateLimitRetryAfterSeconds({ sessionMinute: sessionMinute[0]?.total ?? 0, sessionHour: sessionHour[0]?.total ?? 0,
+        ipMinute: ipMinute[0]?.total ?? 0, ipHour: ipHour[0]?.total ?? 0, shareHour: shareHour[0]?.total ?? 0 });
+      if (retryAfterSeconds)
+        throw new HttpException({ message: 'Límite de comentarios alcanzado. Inténtalo más tarde.', retryAfterSeconds }, 429);
       const orphanedAt = commentHasAnchor(anchor, share.projection) ? null : new Date();
       const [comment] = await tx.insert(publicShareComments).values({ shareId: share.id, ownerHash, authorUserId: user?.id, ipHash, displayName, content, anchor, orphanedAt }).returning({ id: publicShareComments.id, createdAt: publicShareComments.createdAt });
       await tx.insert(publicShareCommentMutations).values({ shareId: share.id, commentId: comment!.id, ownerHash, ipHash, action: 'created' });
@@ -170,15 +172,18 @@ export class PublicCommentsService {
 
   async claim(token: string, cookieHeader: string | undefined, csrfToken: string | undefined, user: CommentUser) {
     const session = this.session(cookieHeader);
-    if (!session) return { claimed: 0 };
+    if (!session) { await this.share(token); return { claimed: 0 }; }
     return this.database.db.transaction(async tx => {
       const [share] = await tx.select({ id: diagramShares.id }).from(diagramShares)
         .where(and(eq(diagramShares.tokenHash, this.shareHash(token)), isNull(diagramShares.revokedAt))).for('update').limit(1);
       if (!share) throw new NotFoundException('Compartido no encontrado.');
       if (csrfToken !== this.csrf(share.id, session)) throw new ForbiddenException('Verificación de comentario no válida.');
-      const claimed = await tx.update(publicShareComments).set({ authorUserId: user.id, ownerHash: this.registeredOwner(share.id, user.id), displayName: user.displayName, updatedAt: new Date() })
-        .where(and(eq(publicShareComments.shareId, share.id), eq(publicShareComments.ownerHash, this.owner(share.id, session)), isNull(publicShareComments.authorUserId)))
+      const registeredOwnerHash = this.registeredOwner(share.id, user.id);
+      const claimed = await tx.update(publicShareComments).set({ authorUserId: user.id, ownerHash: registeredOwnerHash, displayName: user.displayName, updatedAt: new Date() })
+        .where(and(eq(publicShareComments.shareId, share.id), eq(publicShareComments.ownerHash, this.owner(share.id, session)), isNull(publicShareComments.authorUserId), isNull(publicShareComments.deletedAt)))
         .returning({ id: publicShareComments.id });
+      if (claimed.length) await tx.update(publicShareCommentMutations).set({ ownerHash: registeredOwnerHash })
+        .where(inArray(publicShareCommentMutations.commentId, claimed.map(comment => comment.id)));
       return { claimed: claimed.length };
     });
   }
@@ -210,8 +215,10 @@ export class PublicCommentsService {
       const ipMinute = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.ipHash, ipHash), gte(publicShareCommentMutations.createdAt, minute)));
       const ipHour = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.ipHash, ipHash), gte(publicShareCommentMutations.createdAt, hour)));
       const shareHour = await tx.select({ total: count() }).from(publicShareCommentMutations).where(and(eq(publicShareCommentMutations.shareId, share.id), gte(publicShareCommentMutations.createdAt, hour)));
-      if ((sessionMinute[0]?.total ?? 0) >= publicCommentRatePolicy.sessionMinute || (sessionHour[0]?.total ?? 0) >= publicCommentRatePolicy.sessionHour || (ipMinute[0]?.total ?? 0) >= publicCommentRatePolicy.ipMinute || (ipHour[0]?.total ?? 0) >= publicCommentRatePolicy.ipHour || (shareHour[0]?.total ?? 0) >= publicCommentRatePolicy.shareHour)
-        throw new HttpException('Límite de comentarios alcanzado. Inténtalo más tarde.', 429);
+      const retryAfterSeconds = commentRateLimitRetryAfterSeconds({ sessionMinute: sessionMinute[0]?.total ?? 0, sessionHour: sessionHour[0]?.total ?? 0,
+        ipMinute: ipMinute[0]?.total ?? 0, ipHour: ipHour[0]?.total ?? 0, shareHour: shareHour[0]?.total ?? 0 });
+      if (retryAfterSeconds)
+        throw new HttpException({ message: 'Límite de comentarios alcanzado. Inténtalo más tarde.', retryAfterSeconds }, 429);
       const editedAt = new Date();
       const [saved] = await tx.update(publicShareComments).set({ content, revision: current.revision + 1, updatedAt: editedAt, editedAt })
         .where(eq(publicShareComments.id, current.id)).returning({ revision: publicShareComments.revision });

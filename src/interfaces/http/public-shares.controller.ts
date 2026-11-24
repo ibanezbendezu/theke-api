@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, Res, StreamableFile, UnsupportedMediaTypeException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, Inject, Param, Patch, Post, Query, Req, Res, StreamableFile, UnsupportedMediaTypeException, UseGuards } from '@nestjs/common';
 import { Readable } from 'node:stream';
 import type { FastifyRequest } from 'fastify';
 import { parseEnvironmentList } from '../../config/environment.js';
@@ -27,7 +27,10 @@ export class PublicSharesController {
   }
   private markRateLimit(error: unknown, request: FastifyRequest, response: { header(name: string, value: string): unknown }) {
     if (error instanceof Error && 'getStatus' in error && typeof error.getStatus === 'function' && error.getStatus() === 429) {
-      response.header('Retry-After', '60');
+      const body = 'getResponse' in error && typeof error.getResponse === 'function' ? error.getResponse() : null;
+      const retryAfterSeconds = typeof body === 'object' && body !== null && 'retryAfterSeconds' in body && typeof body.retryAfterSeconds === 'number'
+        ? Math.max(1, Math.ceil(body.retryAfterSeconds)) : 60;
+      response.header('Retry-After', String(retryAfterSeconds));
       request.log.warn({ event: 'public_comment_rate_limited', policyVersion: publicCommentRatePolicy.version }, 'Public comment rate limited');
     }
   }
@@ -50,10 +53,11 @@ export class PublicSharesController {
     }
   }
   @Post(':token/comments/claim') @HttpCode(200) @UseGuards(ClerkAuthGuard) async claimComments(@Param('token') token: string,
-    @Req() request: FastifyRequest, @AuthContext() auth: AuthContextValue,
+    @Body() body: Record<string, unknown>, @Req() request: FastifyRequest, @AuthContext() auth: AuthContextValue,
     @Res({ passthrough: true }) response: { header(name: string, value: string): unknown }) {
     response.header('Cache-Control', 'no-store, max-age=0');
     this.requireCommentMutation(request);
+    if (!body || Array.isArray(body) || Object.keys(body).length > 0) throw new BadRequestException('El cuerpo del reclamo debe ser un objeto vacío.');
     return { data: await this.comments.claim(token, request.headers.cookie, request.headers['x-csrf-token'] as string | undefined, (await this.commentUser(auth))!) };
   }
   @Patch(':token/comments/:commentId') @HttpCode(200) @UseGuards(OptionalClerkAuthGuard) async editComment(@Param('token') token: string, @Param('commentId') commentId: string,
