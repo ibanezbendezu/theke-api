@@ -17,7 +17,8 @@ export class CommentNotificationsService {
     if (!Number.isInteger(page) || page < 1 || page > 10000) throw new BadRequestException('Página no válida.');
     const filter = input.filter ?? 'all';
     if (!['all', 'pending', 'resolved', 'anchored', 'unanchored'].includes(filter)) throw new BadRequestException('Filtro no válido.');
-    const conditions = [eq(commentNotifications.accountId, accountId), isNull(publicShareComments.deletedAt)];
+    const conditions = [eq(commentNotifications.accountId, accountId), isNull(publicShareComments.deletedAt),
+      isNull(diagrams.deletedAt), isNull(projects.deletedAt)];
     if (input.diagramId) conditions.push(eq(commentNotifications.diagramId, input.diagramId));
     if (input.commentId) conditions.push(eq(commentNotifications.commentId, input.commentId));
     if (filter === 'pending') conditions.push(isNull(commentNotifications.readAt), isNull(publicShareComments.resolvedAt));
@@ -50,8 +51,10 @@ export class CommentNotificationsService {
   async unreadCount(accountId: string, diagramId?: string) {
     const [row] = await this.database.db.select({ total: count() }).from(commentNotifications)
       .innerJoin(publicShareComments, eq(commentNotifications.commentId, publicShareComments.id))
+      .innerJoin(diagrams, eq(commentNotifications.diagramId, diagrams.id))
+      .innerJoin(projects, eq(diagrams.projectId, projects.id))
       .where(and(eq(commentNotifications.accountId, accountId), isNull(commentNotifications.readAt),
-        isNull(publicShareComments.resolvedAt), isNull(publicShareComments.deletedAt),
+        isNull(publicShareComments.resolvedAt), isNull(publicShareComments.deletedAt), isNull(diagrams.deletedAt), isNull(projects.deletedAt),
         diagramId ? eq(commentNotifications.diagramId, diagramId) : undefined));
     return row?.total ?? 0;
   }

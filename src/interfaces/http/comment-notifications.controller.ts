@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Patch, Query, Res, Sse, UseGuards, type MessageEvent } from '@nestjs/common';
-import { from, timer, distinctUntilChanged, map, switchMap, type Observable } from 'rxjs';
+import { from, timer, distinctUntilChanged, exhaustMap, map, switchMap, type Observable } from 'rxjs';
 import { AuthContext, type AuthContextValue } from '../../infrastructure/auth/auth-context.js';
 import { ClerkAuthGuard } from '../../infrastructure/auth/clerk-auth.guard.js';
 import { AccountService } from '../../modules/account/account.service.js';
@@ -21,7 +21,7 @@ export class CommentNotificationsController {
 
   @Sse('events') events(@AuthContext() auth: AuthContextValue): Observable<MessageEvent> {
     return from(this.accounts.ensureLocalUser(auth)).pipe(
-      switchMap(identity => timer(0, 10_000).pipe(switchMap(() => from(this.notifications.signal(identity.account.id))))),
+      switchMap(identity => timer(0, 10_000).pipe(exhaustMap(() => from(this.notifications.signal(identity.account.id))))),
       distinctUntilChanged((a, b) => a.latestId === b.latestId && a.moderationId === b.moderationId && a.unreadCount === b.unreadCount),
       map(data => ({ type: 'comments', data }))
     );

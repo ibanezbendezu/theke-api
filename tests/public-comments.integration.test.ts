@@ -156,10 +156,24 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const orphan = (await comments.list(firstToken)).comments.find(row => row.id === onResource.comment.id);
     expect(orphan).toMatchObject({ anchored: false, content: 'Sobre la fuente', anchor: { label: 'Fuente visible' } });
     expect((await notifications.list(accountId, { filter: 'unanchored' })).items.some(row => row.commentId === onResource.comment.id)).toBe(true);
-    await database.db.insert(publicShareComments).values(Array.from({ length: 101 }, (_, index) => ({
+    const historical = await database.db.insert(publicShareComments).values(Array.from({ length: 101 }, (_, index) => ({
       shareId: shareIds[0]!, ownerHash: 'pagination-fixture', ipHash: 'pagination-fixture', displayName: 'Prueba',
       content: `Página ${index}`, createdAt: new Date(Date.now() + (index + 1) * 1000),
+    }))).returning({ id: publicShareComments.id, createdAt: publicShareComments.createdAt });
+    await database.db.insert(commentNotifications).values(historical.slice(0, 21).map(row => ({
+      accountId, diagramId: diagramIds[0]!, commentId: row.id, createdAt: row.createdAt,
     })));
+    const noticePageOne = await notifications.list(accountId, { diagramId: diagramIds[0], page: '1' });
+    const noticePageTwo = await notifications.list(accountId, { diagramId: diagramIds[0], page: '2' });
+    expect(noticePageOne.items).toHaveLength(20);
+    expect(noticePageOne.hasMore).toBe(true);
+    expect(noticePageTwo.items.some(row => row.commentId === historical[0]!.id)).toBe(true);
+    expect(noticePageTwo.items.some(row => noticePageOne.items.some(first => first.id === row.id))).toBe(false);
+    expect(noticePageTwo.hasMore).toBe(false);
+    await database.db.update(diagrams).set({ deletedAt: new Date() }).where(eq(diagrams.id, diagramIds[0]!));
+    expect(await notifications.list(accountId, { diagramId: diagramIds[0] })).toMatchObject({ items: [], unreadCount: 0 });
+    await database.db.update(projects).set({ deletedAt: new Date() }).where(eq(projects.id, projectIds[1]!));
+    expect(await notifications.list(accountId, {})).toMatchObject({ items: [], unreadCount: 0 });
     const firstPage = await comments.list(firstToken);
     expect(firstPage.comments).toHaveLength(100);
     expect(firstPage.nextCursor).toBe(firstPage.comments[99]?.id);
