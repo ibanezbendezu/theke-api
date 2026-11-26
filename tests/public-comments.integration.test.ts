@@ -88,7 +88,8 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     await database.db.update(diagramShares).set({ projection: { diagramName: 'Mapa', revision: 1,
       resources: [{ id: resourceId, title: 'Fuente visible' }, { id: secondResourceId, title: 'Destino visible' }],
       relations: [{ id: relationId, label: 'Sustenta', sourceResourceId: resourceId, targetResourceId: secondResourceId }],
-      layout: { nodes: [{ resourceId, x: 10, y: 20, width: 100, height: 60 }, { resourceId: secondResourceId, x: 210, y: 120, width: 100, height: 60 }], edges: [] },
+      layout: { nodes: [{ id: 'source', resourceId, x: 10, y: 20, width: 100, height: 60 }, { id: 'target', resourceId: secondResourceId, x: 210, y: 120, width: 100, height: 60 }],
+        edges: [{ id: 'edge', relationId, source: 'source', target: 'target', sourceHandle: 'top', targetHandle: 'left', offsetX: 20, offsetY: 40 }] },
     } }).where(eq(diagramShares.id, shareIds[0]!));
     const newCookie = cookieValue(comments.cookieHeader(repeatedName.session!));
     const csrf = (await comments.list(firstToken, newCookie)).csrfToken!;
@@ -98,9 +99,14 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const onResource = await comments.create(firstToken, { content: 'Sobre la fuente', anchor: { type: 'resource', resourceId } }, newCookie, csrf, '127.0.0.3');
     expect(onResource.comment.anchor).toEqual({ type: 'resource', resourceId, label: 'Fuente visible', x: 60, y: 50 });
     const onRelation = await comments.create(firstToken, { content: 'Sobre la relación', anchor: { type: 'relation', relationId } }, newCookie, csrf, '127.0.0.3');
-    expect(onRelation.comment.anchor).toEqual({ type: 'relation', relationId, label: 'Sustenta', x: 160, y: 100 });
+    expect(onRelation.comment.anchor).toEqual({ type: 'relation', relationId, label: 'Sustenta', x: 145, y: 105 });
     const onPoint = await comments.create(firstToken, { content: 'En este punto', anchor: { type: 'diagram', x: 25, y: -50 } }, newCookie, csrf, '127.0.0.3');
     expect(onPoint.comment.anchor).toEqual({ type: 'diagram', x: 25, y: -50 });
+    const anchoredComments = [onResource.comment, onRelation.comment, onPoint.comment];
+    expect(anchoredComments.every(comment => comment.anchored)).toBe(true);
+    expect((await comments.list(firstToken)).comments).toEqual(expect.arrayContaining(
+      anchoredComments.map(comment => expect.objectContaining({ id: comment.id, anchor: comment.anchor, anchored: true })),
+    ));
     await comments.create(firstToken, { content: 'Quinto comentario' }, newCookie, csrf, '127.0.0.3');
     await expect(comments.create(firstToken, { content: 'Supera el límite' }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 429 });
     await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, first.comment.id));

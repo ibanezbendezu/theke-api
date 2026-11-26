@@ -95,9 +95,23 @@ export class PublicCommentsService {
     if (value.type === 'relation' && typeof value.relationId === 'string') {
       const relation = projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.relationId) as { id: string; label?: string | null; typeKey?: string; typeLabel?: string; sourceResourceId?: string; targetResourceId?: string } | undefined;
       if (!relation) throw new NotFoundException('Destino no disponible en este Compartido.');
-      const source = relation.sourceResourceId ? positionOf(relation.sourceResourceId) : null;
-      const target = relation.targetResourceId ? positionOf(relation.targetResourceId) : null;
-      const middle = source && target ? { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 } : null;
+      const edge = projection.layout?.edges.find(item => item.relationId === relation.id);
+      const portPosition = (nodeId: unknown, handle: unknown) => {
+        const node = nodes.find(item => item.id === nodeId);
+        if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') return null;
+        const width = typeof node.width === 'number' ? node.width : 288;
+        const height = typeof node.height === 'number' ? node.height : 112;
+        const x = handle === 'left' ? 0 : handle === 'right' ? width : width / 2;
+        const y = handle === 'top' ? 0 : handle === 'bottom' ? height : height / 2;
+        return { x: node.x + x, y: node.y + y };
+      };
+      const source = (edge && portPosition(edge.source, edge.sourceHandle ?? 'right')) ?? (relation.sourceResourceId ? positionOf(relation.sourceResourceId) : null);
+      const target = (edge && portPosition(edge.target, edge.targetHandle ?? 'left')) ?? (relation.targetResourceId ? positionOf(relation.targetResourceId) : null);
+      // The public canvas draws a quadratic curve with its control point offset from the midpoint.
+      const middle = source && target ? {
+        x: (source.x + target.x + (typeof edge?.offsetX === 'number' ? edge.offsetX : 0)) / 2,
+        y: (source.y + target.y + (typeof edge?.offsetY === 'number' ? edge.offsetY : 0)) / 2,
+      } : null;
       return { type: 'relation', relationId: relation.id, label: (relation.label || relation.typeLabel || legacyTypeLabel || 'Relación').slice(0, 160), ...(middle ?? point) };
     }
     throw new BadRequestException('Selecciona un punto, Recurso o Relación para comentar.');
