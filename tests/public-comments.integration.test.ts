@@ -45,7 +45,8 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const pending = await notifications.list(accountId, {filter: 'pending'});
     expect(pending).toMatchObject({unreadCount: 1, items: [{commentId: first.comment.id, diagramId: diagramIds[0], projectId: projectIds[0], anchored: false}]});
     await expect(notifications.markRead(randomUUID(), pending.items[0]!.id)).rejects.toMatchObject({status: 404});
-    await notifications.markRead(accountId, pending.items[0]!.id);
+    const readNotice = await notifications.markRead(accountId, pending.items[0]!.id);
+    expect(await notifications.markRead(accountId, pending.items[0]!.id)).toEqual(readNotice);
     expect((await notifications.list(accountId, {filter: 'pending'})).unreadCount).toBe(0);
     expect(first.comment).toMatchObject({ displayName: expect.stringMatching(/^[A-Z][a-z]+ [a-z]+$/), content: 'Primero', editable: true });
     expect(first.session).toBeTruthy();
@@ -145,17 +146,41 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     await notifications.moderate(accountId, userId, item.id, 'delete');
     expect((await comments.list(firstToken)).comments.some(row => row.id === onPoint.comment.id)).toBe(false);
     expect((await notifications.list(accountId, { commentId: onPoint.comment.id })).items).toHaveLength(0);
-    const [removed] = await database.db.select({ purgeAfter: publicShareComments.purgeAfter }).from(publicShareComments).where(eq(publicShareComments.id, onPoint.comment.id));
-    expect(removed?.purgeAfter).toBeInstanceOf(Date);
-    await database.db.update(publicShareComments).set({ purgeAfter: new Date(Date.now() - 1000) }).where(eq(publicShareComments.id, onPoint.comment.id));
-    expect(await notifications.purgeExpired()).toBeGreaterThan(0);
-    expect((await database.db.select({ id: publicShareComments.id }).from(publicShareComments).where(eq(publicShareComments.id, onPoint.comment.id)))).toHaveLength(0);
+    const [removed] = await database.db.select({ purgeAfter: publicShareComments.purgeAfter, deletedAt: publicShareComments.deletedAt })
+      .from(publicShareComments).where(eq(publicShareComments.id, onPoint.comment.id));
+    expect(removed!.purgeAfter!.getTime() - removed!.deletedAt!.getTime()).toBe(30 * 86_400_000);
+    const retainedNotice = (await notifications.list(accountId, { commentId: second.comment.id })).items[0]!;
+    await notifications.moderate(accountId, userId, retainedNotice.id, 'delete');
+    const rollbackPurge = new Error('Fin de la verificación de purga');
+    await expect(database.db.transaction(async tx => {
+      await tx.update(publicShareComments).set({ purgeAfter: new Date('2000-01-01T00:00:00Z') })
+        .where(eq(publicShareComments.id, onPoint.comment.id));
+      // La purga de producción es global. Verificarla sin confirmar el borrado de ninguna fila.
+      const purge = new CommentNotificationsService({
+        db: { transaction: (work: (client: typeof tx) => Promise<number>) => work(tx) },
+      } as unknown as Database);
+      expect(await purge.purgeExpired()).toBeGreaterThan(0);
+      expect(await tx.select({ id: publicShareComments.id }).from(publicShareComments)
+        .where(eq(publicShareComments.id, onPoint.comment.id))).toHaveLength(0);
+      expect((await tx.select({ content: publicShareComments.content }).from(publicShareComments)
+        .where(eq(publicShareComments.id, second.comment.id)))[0]?.content).toBe('Segundo');
+      const audit = await tx.select().from(commentModerationEvents).where(eq(commentModerationEvents.commentId, onPoint.comment.id));
+      expect(audit.map(event => event.action).sort()).toEqual(['deleted', 'reopened', 'resolved']);
+      expect(audit.every(event => event.accountId === accountId && event.actorUserId === userId)).toBe(true);
+      throw rollbackPurge;
+    })).rejects.toBe(rollbackPurge);
     const refreshed = new DiagramShareService(database, { get: async () => ({ ready: true, fingerprint: 'b'.repeat(64), diagramName: 'Mapa', revision: 2,
       resources: [], relations: [], layout: { nodes: [], edges: [] } }) } as unknown as SharePreviewService, {} as UploadStorage);
-    await refreshed.refresh(accountId, userId, diagramIds[0]!, { fingerprint: 'b'.repeat(64), expectedPublishedFingerprint: 'a'.repeat(64) });
+    expect(await refreshed.syncAfterSave(accountId, userId, diagramIds[0]!)).toBe('updated');
     const orphan = (await comments.list(firstToken)).comments.find(row => row.id === onResource.comment.id);
     expect(orphan).toMatchObject({ anchored: false, content: 'Sobre la fuente', anchor: { label: 'Fuente visible' } });
     expect((await notifications.list(accountId, { filter: 'unanchored' })).items.some(row => row.commentId === onResource.comment.id)).toBe(true);
+    const restored = new DiagramShareService(database, { get: async () => ({ ready: true, fingerprint: 'c'.repeat(64), diagramName: 'Mapa', revision: 3,
+      resources: [{ id: resourceId, type: 'note', title: 'Título nuevo' }], relations: [],
+      layout: { nodes: [{ id: 'restored', resourceId, x: 220, y: 310, width: 100, height: 60 }], edges: [] } }) } as unknown as SharePreviewService, {} as UploadStorage);
+    await restored.refresh(accountId, userId, diagramIds[0]!, { fingerprint: 'c'.repeat(64), expectedPublishedFingerprint: 'b'.repeat(64) });
+    expect((await comments.list(firstToken)).comments.find(row => row.id === onResource.comment.id))
+      .toMatchObject({ anchored: true, content: 'Sobre la fuente', anchor: { label: 'Fuente visible', x: 270, y: 340 } });
     const historical = await database.db.insert(publicShareComments).values(Array.from({ length: 101 }, (_, index) => ({
       shareId: shareIds[0]!, ownerHash: 'pagination-fixture', ipHash: 'pagination-fixture', displayName: 'Prueba',
       content: `Página ${index}`, createdAt: new Date(Date.now() + (index + 1) * 1000),
@@ -177,6 +202,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     const firstPage = await comments.list(firstToken);
     expect(firstPage.comments).toHaveLength(100);
     expect(firstPage.nextCursor).toBe(firstPage.comments[99]?.id);
+    await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, firstPage.nextCursor!));
     const secondPage = await comments.list(firstToken, undefined, undefined, firstPage.nextCursor!);
     expect(secondPage.comments.length).toBeGreaterThan(0);
     expect(secondPage.comments.some(row => row.id === firstPage.comments[99]?.id)).toBe(false);

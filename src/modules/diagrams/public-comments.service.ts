@@ -7,7 +7,7 @@ import { withSerializationRetry } from '../../infrastructure/database/serializat
 import { commonRelationTypes } from '../relations/relation.service.js';
 import { commentRateLimitRetryAfterSeconds } from './public-comment-rate-policy.js';
 import { scientificAlias } from './public-comment-alias.js';
-import { commentHasAnchor } from './comment-anchor.js';
+import { commentHasAnchor, publishedCommentPosition } from './comment-anchor.js';
 
 type CommentUser = { id: string; displayName: string };
 
@@ -81,38 +81,17 @@ export class PublicCommentsService {
       if (!hasPoint) throw new BadRequestException('Selecciona un punto del mapa.');
       return { type: 'diagram', ...point };
     }
-    const nodes = projection.layout?.nodes ?? [];
-    const positionOf = (resourceId: string) => {
-      const node = nodes.find(item => item.resourceId === resourceId);
-      return node && typeof node.x === 'number' && typeof node.y === 'number'
-        ? { x: node.x + (typeof node.width === 'number' ? node.width / 2 : 144), y: node.y + (typeof node.height === 'number' ? node.height / 2 : 56) } : null;
-    };
     if (value.type === 'resource' && typeof value.resourceId === 'string') {
       const resource = projection.resources.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.resourceId) as { id: string; title?: string } | undefined;
       if (!resource) throw new NotFoundException('Destino no disponible en este Compartido.');
-      return { type: 'resource', resourceId: resource.id, label: resource.title?.slice(0, 160) || 'Recurso', ...(positionOf(resource.id) ?? point) };
+      const anchor = { type: 'resource' as const, resourceId: resource.id, label: resource.title?.slice(0, 160) || 'Recurso' };
+      return { ...anchor, ...(publishedCommentPosition(anchor, projection) ?? point) };
     }
     if (value.type === 'relation' && typeof value.relationId === 'string') {
-      const relation = projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.relationId) as { id: string; label?: string | null; typeKey?: string; typeLabel?: string; sourceResourceId?: string; targetResourceId?: string } | undefined;
+      const relation = projection.relations.find(item => typeof item === 'object' && item !== null && 'id' in item && item.id === value.relationId) as { id: string; label?: string | null; typeLabel?: string } | undefined;
       if (!relation) throw new NotFoundException('Destino no disponible en este Compartido.');
-      const edge = projection.layout?.edges.find(item => item.relationId === relation.id);
-      const portPosition = (nodeId: unknown, handle: unknown) => {
-        const node = nodes.find(item => item.id === nodeId);
-        if (!node || typeof node.x !== 'number' || typeof node.y !== 'number') return null;
-        const width = typeof node.width === 'number' ? node.width : 288;
-        const height = typeof node.height === 'number' ? node.height : 112;
-        const x = handle === 'left' ? 0 : handle === 'right' ? width : width / 2;
-        const y = handle === 'top' ? 0 : handle === 'bottom' ? height : height / 2;
-        return { x: node.x + x, y: node.y + y };
-      };
-      const source = (edge && portPosition(edge.source, edge.sourceHandle ?? 'right')) ?? (relation.sourceResourceId ? positionOf(relation.sourceResourceId) : null);
-      const target = (edge && portPosition(edge.target, edge.targetHandle ?? 'left')) ?? (relation.targetResourceId ? positionOf(relation.targetResourceId) : null);
-      // The public canvas draws a quadratic curve with its control point offset from the midpoint.
-      const middle = source && target ? {
-        x: (source.x + target.x + (typeof edge?.offsetX === 'number' ? edge.offsetX : 0)) / 2,
-        y: (source.y + target.y + (typeof edge?.offsetY === 'number' ? edge.offsetY : 0)) / 2,
-      } : null;
-      return { type: 'relation', relationId: relation.id, label: (relation.label || relation.typeLabel || legacyTypeLabel || 'Relación').slice(0, 160), ...(middle ?? point) };
+      const anchor = { type: 'relation' as const, relationId: relation.id, label: (relation.label || relation.typeLabel || legacyTypeLabel || 'Relación').slice(0, 160) };
+      return { ...anchor, ...(publishedCommentPosition(anchor, projection) ?? point) };
     }
     throw new BadRequestException('Selecciona un punto, Recurso o Relación para comentar.');
   }
@@ -129,7 +108,7 @@ export class PublicCommentsService {
       orphanedAt: publicShareComments.orphanedAt })
       .from(publicShareComments).leftJoin(users, eq(publicShareComments.authorUserId, users.id))
       .where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), cursor
-        ? sql`(${publicShareComments.createdAt}, ${publicShareComments.id}) < (SELECT created_at, id FROM public_share_comments WHERE id = ${cursor}::uuid AND share_id = ${share.id} AND deleted_at IS NULL)`
+        ? sql`(${publicShareComments.createdAt}, ${publicShareComments.id}) < (SELECT created_at, id FROM public_share_comments WHERE id = ${cursor}::uuid AND share_id = ${share.id})`
         : undefined))
       .orderBy(desc(publicShareComments.createdAt), desc(publicShareComments.id)).limit(101);
     const page = rows.slice(0, 100);

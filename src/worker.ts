@@ -14,9 +14,21 @@ const app = await NestFactory.createApplicationContext(AppModule, { logger: ['er
 const queue = app.get(UploadQueue); const processor = app.get(UploadProcessor); const linkProcessor = app.get(LinkProcessor);
 const commentNotifications = app.get(CommentNotificationsService);
 const shares = app.get(DiagramShareService);
-const purgeComments = () => { void commentNotifications.purgeExpired().catch(() => console.error('No se pudo purgar comentarios vencidos.')); };
-purgeComments();
-const commentPurgeTimer = setInterval(purgeComments, 60 * 60 * 1000);
+let commentPurgeTimer: ReturnType<typeof setTimeout> | undefined;
+let shuttingDown = false;
+const purgeComments = async () => {
+  try {
+    let purged: number;
+    do {
+      purged = await commentNotifications.purgeExpired();
+    } while (!shuttingDown && purged === 100);
+  } catch {
+    console.error('No se pudo purgar comentarios vencidos.');
+  } finally {
+    if (!shuttingDown) commentPurgeTimer = setTimeout(() => void purgeComments(), 60 * 60 * 1000);
+  }
+};
+void purgeComments();
 await queue.boss.work(UPLOAD_QUEUE, { includeMetadata: true }, async ([job]: JobWithMetadata<{ uploadId: string; requestId: string }>[]) => {
   if (!job) return;
   try { await processor.process(job.data.uploadId); }
@@ -32,5 +44,10 @@ await queue.boss.work(SHARE_QUEUE, async ([job]: { data: ShareSyncJob }[]) => {
     await shares.syncForResource(accountId, actorUserId, job.data.resourceId);
   }
 });
-const shutdown = async () => { clearInterval(commentPurgeTimer); await app.close(); process.exit(0); };
+const shutdown = async () => {
+  shuttingDown = true;
+  clearTimeout(commentPurgeTimer);
+  await app.close();
+  process.exit(0);
+};
 process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown);

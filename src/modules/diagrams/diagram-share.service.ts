@@ -8,7 +8,7 @@ import { diagramShareEvents, diagramShares, diagrams, projects, publicShareComme
 import { commonRelationTypes } from '../relations/relation.service.js';
 import { UPLOAD_STORAGE, type UploadStorage } from '../uploads/upload.ports.js';
 import { SharePreviewService } from './share-preview.service.js';
-import { commentHasAnchor } from './comment-anchor.js';
+import { publishedCommentPosition } from './comment-anchor.js';
 
 const fingerprintPattern = /^[a-f0-9]{64}$/;
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/;
@@ -17,6 +17,23 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 @Injectable()
 export class DiagramShareService {
   constructor(@Inject(Database) private readonly database: Database, @Inject(SharePreviewService) private readonly preview: SharePreviewService, @Inject(UPLOAD_STORAGE) private readonly storage: UploadStorage, @Optional() @Inject(UploadQueue) private readonly queue?: UploadQueue) {}
+
+  private async reconcileCommentAnchors(tx: Pick<Database['db'], 'select' | 'update'>, shareId: string, projection: typeof diagramShares.$inferSelect.projection) {
+    const comments = await tx.select({ id: publicShareComments.id, anchor: publicShareComments.anchor, orphanedAt: publicShareComments.orphanedAt })
+      .from(publicShareComments).where(and(eq(publicShareComments.shareId, shareId), isNull(publicShareComments.deletedAt)));
+    const newlyOrphaned: string[] = [];
+    for (const { id, anchor, orphanedAt } of comments) {
+      const position = publishedCommentPosition(anchor, projection);
+      if (!position) {
+        if (!orphanedAt) newlyOrphaned.push(id);
+      } else if (orphanedAt || position.x !== anchor.x || position.y !== anchor.y) {
+        await tx.update(publicShareComments).set({ anchor: { ...anchor, ...position }, orphanedAt: null })
+          .where(eq(publicShareComments.id, id));
+      }
+    }
+    if (newlyOrphaned.length) await tx.update(publicShareComments).set({ orphanedAt: new Date() })
+      .where(inArray(publicShareComments.id, newlyOrphaned));
+  }
 
   async enqueueSync(job: ShareSyncJob) {
     try { await this.queue?.enqueueShare(job); }
@@ -116,10 +133,7 @@ export class DiagramShareService {
       const { diagramName, revision, resources, relations, layout } = current;
       const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
       const projection = { diagramName, revision, resources, relations, layout };
-      const comments = await tx.select({ id: publicShareComments.id, anchor: publicShareComments.anchor })
-        .from(publicShareComments).where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), isNull(publicShareComments.orphanedAt)));
-      for (const comment of comments) if (!commentHasAnchor(comment.anchor, projection))
-        await tx.update(publicShareComments).set({ orphanedAt: new Date() }).where(eq(publicShareComments.id, comment.id));
+      await this.reconcileCommentAnchors(tx, share.id, projection);
       await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection, mediaManifest })
         .where(eq(diagramShares.id, share.id));
       await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });
@@ -143,10 +157,7 @@ export class DiagramShareService {
         const { diagramName, revision, resources, relations, layout } = current;
         const mediaManifest = await this.mediaFor(accountId, resources, tx as unknown as Database['db']);
         const projection = { diagramName, revision, resources, relations, layout };
-        const comments = await tx.select({ id: publicShareComments.id, anchor: publicShareComments.anchor })
-          .from(publicShareComments).where(and(eq(publicShareComments.shareId, share.id), isNull(publicShareComments.deletedAt), isNull(publicShareComments.orphanedAt)));
-        for (const comment of comments) if (!commentHasAnchor(comment.anchor, projection))
-          await tx.update(publicShareComments).set({ orphanedAt: new Date() }).where(eq(publicShareComments.id, comment.id));
+        await this.reconcileCommentAnchors(tx, share.id, projection);
         await tx.update(diagramShares).set({ fingerprint: current.fingerprint, projection, mediaManifest })
           .where(eq(diagramShares.id, share.id));
         await tx.insert(diagramShareEvents).values({ accountId, diagramId, shareId: share.id, actorUserId, action: 'refreshed' });

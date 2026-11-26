@@ -70,13 +70,11 @@ export class CommentNotificationsService {
   }
 
   async markRead(accountId: string, notificationId: string) {
-    const [row] = await this.database.db.update(commentNotifications).set({ readAt: new Date() })
-      .where(and(eq(commentNotifications.id, notificationId), eq(commentNotifications.accountId, accountId), isNull(commentNotifications.readAt)))
+    const [row] = await this.database.db.update(commentNotifications).set({ readAt: sql`coalesce(${commentNotifications.readAt}, now())` })
+      .where(and(eq(commentNotifications.id, notificationId), eq(commentNotifications.accountId, accountId)))
       .returning({ id: commentNotifications.id, readAt: commentNotifications.readAt });
-    const [existing] = row ? [row] : await this.database.db.select({ id: commentNotifications.id, readAt: commentNotifications.readAt })
-      .from(commentNotifications).where(and(eq(commentNotifications.id, notificationId), eq(commentNotifications.accountId, accountId))).limit(1);
-    if (!existing) throw new NotFoundException('Aviso no disponible.');
-    return { id: existing.id, readAt: existing.readAt!.toISOString() };
+    if (!row?.readAt) throw new NotFoundException('Aviso no disponible.');
+    return { id: row.id, readAt: row.readAt.toISOString() };
   }
 
   async moderate(accountId: string, actorUserId: string, notificationId: string, action: 'resolve' | 'reopen' | 'delete') {
@@ -116,6 +114,7 @@ export class CommentNotificationsService {
     return this.database.db.transaction(async tx => {
       const expired = await tx.select({ id: publicShareComments.id }).from(publicShareComments)
         .where(and(isNotNull(publicShareComments.purgeAfter), lt(publicShareComments.purgeAfter, new Date())))
+        .orderBy(publicShareComments.purgeAfter, publicShareComments.id)
         .limit(100).for('update', { skipLocked: true });
       const ids = expired.map(item => item.id);
       if (!ids.length) return 0;
