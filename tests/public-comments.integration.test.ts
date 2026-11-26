@@ -107,7 +107,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     expect((await comments.list(firstToken)).comments).toEqual(expect.arrayContaining(
       anchoredComments.map(comment => expect.objectContaining({ id: comment.id, anchor: comment.anchor, anchored: true })),
     ));
-    await comments.create(firstToken, { content: 'Quinto comentario' }, newCookie, csrf, '127.0.0.3');
+    await comments.edit(firstToken, repeatedName.comment.id, { content: 'Nueva identidad, corregido', expectedRevision: 1 }, newCookie, csrf, '127.0.0.3');
     await expect(comments.create(firstToken, { content: 'Supera el límite' }, newCookie, csrf, '127.0.0.3')).rejects.toMatchObject({ status: 429 });
     await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, first.comment.id));
     await expect(comments.edit(firstToken, first.comment.id, { content: 'Comentario eliminado', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 404 });
@@ -115,7 +115,7 @@ describe.runIf(Boolean(process.env.DATABASE_URL))('identidad anónima de comenta
     await database.db.update(diagramShares).set({ commentsEnabled: false }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.create(firstToken, { content: 'Bloqueado' }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
     await expect(comments.edit(firstToken, first.comment.id, { content: 'Edición bloqueada', expectedRevision: 2 }, cookie, recognized.csrfToken!, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
-    expect((await comments.list(firstToken)).comments).toHaveLength(7);
+    expect((await comments.list(firstToken)).comments).toHaveLength(6);
     await database.db.update(diagramShares).set({ commentsEnabled: true }).where(eq(diagramShares.id, shareIds[0]!));
     await expect(comments.claim('A'.repeat(43), undefined, undefined, { id: userId, displayName: 'Investigadora' })).rejects.toMatchObject({ status: 404 });
     await database.db.update(publicShareComments).set({ deletedAt: new Date() }).where(eq(publicShareComments.id, otherShare.comment.id));
